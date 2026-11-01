@@ -4,8 +4,9 @@ Container-hosted [Genesis](https://github.com/ianphil/genesis) agents powered by
 [Pi Durable](https://github.com/earendil-works/pi/tree/main/packages/durable),
 reachable through A2A.
 
-**Status: planning.** No provisioning API, container image or agent runtime is
-implemented yet. There are no installation or deployment instructions yet.
+**Status: early runtime proof.** A minimal containerized Durable host with SQLite,
+read-only mind access and health endpoints is implemented. Provisioning, Genesis
+bootstrap and A2A integration are not implemented. See [runtime setup and evidence](docs/runtime.md).
 
 ## Design
 
@@ -76,8 +77,9 @@ Coding agents must also follow [AGENTS.md](AGENTS.md).
 ## Implementation baseline
 
 See [MVP contracts and prerequisite findings](docs/mvp-contracts.md) for issue #1's
-selected artifacts, API/bootstrap/task policies, observed local blockers and
-unverified integration gates. These are implementation decisions, not runtime proof.
+selected artifacts and API/bootstrap/task policies. The narrowed #2 runtime and
+current default model (Haiku 5.5) are documented in [runtime setup and evidence](docs/runtime.md).
+Docker access is now operational; historical prerequisite findings are not current blockers.
 
 ## Next validation
 
