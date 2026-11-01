@@ -7,7 +7,8 @@ reachable through A2A.
 **Status: early runtime proof.** A minimal containerized Durable host with SQLite,
 read-only mind access and health endpoints is implemented. Controlled no-Git
 [Genesis bootstrap](docs/bootstrap.md) is available as a provisioner function.
-Provisioning API and A2A integration are not implemented. See [runtime setup and evidence](docs/runtime.md).
+An authenticated [direct A2A listener](docs/a2a.md) supports persistent tasks.
+Provisioning API and gateway registration are not implemented. See [runtime setup and evidence](docs/runtime.md).
 
 ## Design
 

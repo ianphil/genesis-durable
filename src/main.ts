@@ -1,17 +1,13 @@
-import { createServer } from 'node:http';
+import { readFile } from 'node:fs/promises';
+import { join, dirname } from 'node:path';
+import { openA2A } from './a2a.js';
+import { a2aHttp } from './a2a-http.js';
 import { runtimeModels, defaultModel } from './model.js';
 import { openRuntime } from './runtime.js';
 
 const log = (event: string, fields: Record<string, string> = {}) =>
   console.log(JSON.stringify({ timestamp: new Date().toISOString(), severity: 'info', event, ...fields }));
-let ready = false;
-const server = createServer((request, response) => {
-  const live = request.url === '/health/live';
-  const readiness = request.url === '/health/ready';
-  response.writeHead(live || (readiness && ready) ? 200 : readiness ? 503 : 404,
-    { 'content-type': 'application/json' });
-  response.end(JSON.stringify({ status: live ? 'alive' : readiness && ready ? 'ready' : 'unavailable' }));
-});
+
 async function main() {
   const workspace = process.env.GENESIS_WORKSPACE ?? '/workspace';
   const database = process.env.GENESIS_DATABASE ?? '/state/durable.sqlite';
@@ -20,18 +16,21 @@ async function main() {
   if (!endpoint || !keyFile) throw new Error('model_configuration');
   const models = await runtimeModels(endpoint, keyFile);
   const runtime = await openRuntime({ workspace, database, models, model: defaultModel, log });
-  server.listen(8080, '0.0.0.0', () => { ready = true; log('listener_ready'); });
+  const tokenFile = process.env.GENESIS_LISTENER_KEY_FILE;
+  if (!tokenFile) { await runtime.close(); throw new Error('listener_configuration'); }
+  const bridge = await openA2A({ runtime, database: join(dirname(database), 'a2a.sqlite'),
+    name: process.env.GENESIS_NAME ?? 'genesis', url: process.env.GENESIS_A2A_URL ?? 'http://127.0.0.1:8080/a2a', log });
+  const http = a2aHttp(bridge, (await readFile(tokenFile, 'utf8')).trim());
+  http.server.listen(8080, '0.0.0.0', () => log('listener_ready'));
   let stopping = false;
   const stop = async () => {
-    if (stopping) return; stopping = true; ready = false;
-    server.close();
-    await runtime.close();
+    if (stopping) return; stopping = true;
+    await http.close();
   };
   process.once('SIGTERM', () => { void stop().catch(() => { process.exitCode = 1; }); });
   process.once('SIGINT', () => { void stop().catch(() => { process.exitCode = 1; }); });
   void runtime.harness.closed.then((end) => {
-    ready = false;
-    if (end.reason === 'failed') { log('storage_failed'); server.close(); process.exitCode = 1; }
+    if (end.reason === 'failed') { log('storage_failed'); void http.close(); process.exitCode = 1; }
   });
 }
-void main().catch(() => { log('startup_failed'); server.close(); process.exitCode = 1; });
+void main().catch(() => { log('startup_failed'); process.exitCode = 1; });
