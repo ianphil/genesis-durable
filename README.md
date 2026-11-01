@@ -5,8 +5,9 @@ Container-hosted [Genesis](https://github.com/ianphil/genesis) agents powered by
 reachable through A2A.
 
 **Status: early runtime proof.** A minimal containerized Durable host with SQLite,
-read-only mind access and health endpoints is implemented. Provisioning, Genesis
-bootstrap and A2A integration are not implemented. See [runtime setup and evidence](docs/runtime.md).
+read-only mind access and health endpoints is implemented. Controlled no-Git
+[Genesis bootstrap](docs/bootstrap.md) is available as a provisioner function.
+Provisioning API and A2A integration are not implemented. See [runtime setup and evidence](docs/runtime.md).
 
 ## Design
 
