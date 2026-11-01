@@ -61,6 +61,24 @@ Streaming, artifacts, fleet placement, a browser UI, package marketplaces,
 autonomous schedules and migration of populated Copilot minds are deferred.
 Genesis changes should remain minimal; this repo owns hosting and runtime adapters.
 
+## Product requirements
+
+See [prd.md](prd.md) for MVP requirements, acceptance criteria and deferred scope.
+Implementation slices and dependencies are tracked in
+[GitHub issues](https://github.com/ianphil/genesis-durable/issues).
+
+## Development
+
+Before implementation, review or dependency changes, read
+[CONTRIBUTING.md](CONTRIBUTING.md) for SDK-first contracts and verification gates.
+Coding agents must also follow [AGENTS.md](AGENTS.md).
+
+## Implementation baseline
+
+See [MVP contracts and prerequisite findings](docs/mvp-contracts.md) for issue #1's
+selected artifacts, API/bootstrap/task policies, observed local blockers and
+unverified integration gates. These are implementation decisions, not runtime proof.
+
 ## Next validation
 
 1. Verify local container prerequisites and gateway-to-container reachability.
