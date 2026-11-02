@@ -52,8 +52,9 @@ an independently tested production disaster-recovery deployment.
 Bounded synthetic test uses official root.compact, waits for task/summary placement,
 asserts a compaction entry exists while original historical answer remains stored,
 and verifies canonical Markdown unchanged and readable after restore. It uses a
-scripted summary, not a real-model semantic-fidelity test. Automatic threshold
-triggering and real-model summary quality still need acceptance. #9 separately
+scripted summary, not a real-model semantic-fidelity test. A separate 2,048-token synthetic-model test triggers automatic threshold
+compaction and continues generation while original transcript and canonical files
+remain intact. Real-model summary quality still needs acceptance. #9 separately
 tracks instructions distinguishing canonical memory from persistent transcript.
 
 ## Isolation, retention and remaining validation
@@ -76,6 +77,8 @@ Storage-open failure test rejects a directory used as database. A Proxy over the
 supported Storage interface injects a mid-run commit I/O failure: submit rejects,
 harness.closed reports failed, and lifecycle logs contain session_failed but neither
 sentinel error content nor prompt. This is interface-level failure injection, not
-physical SQLITE_FULL. Actual SQLITE_FULL, live HTTP readiness during storage failure,
-automatic compaction and concurrent-owner rejection remain unverified. Do not close
+physical SQLITE_FULL. A health listener bound to the failed harness lifetime returns liveness 200 and
+readiness 503; authenticated discovery/protocol requests also refuse readiness.
+This is an isolated HTTP lifetime test, not a live container failure injection.
+Actual SQLITE_FULL and concurrent-owner rejection remain unverified. Do not close
 #7 on this partial evidence alone.

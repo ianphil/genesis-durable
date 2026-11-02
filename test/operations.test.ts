@@ -7,6 +7,8 @@ import { createModels } from '@earendil-works/pi-ai/models';
 import { fauxProvider, fauxAssistantMessage, fauxToolCall } from '@earendil-works/pi-ai/providers/faux';
 import { openNodeSqliteStorage } from '@earendil-works/pi-durable/storage/sqlite/node';
 import type { Storage } from '@earendil-works/pi-durable';
+import { a2aHttp } from '../src/a2a-http.js';
+import type { openA2A } from '../src/a2a.js';
 import { openRuntime, context, memoryFiles } from '../src/runtime.js';
 
 test('bounded compaction retains transcript and mind; cold backup restores conversation', { timeout: 30000 }, async () => {
@@ -53,6 +55,26 @@ test('bounded compaction retains transcript and mind; cold backup restores conve
   } finally { await runtime?.close(); await rm(dir, { recursive: true, force: true }); await rm(dir + '-backup', { recursive: true, force: true }); }
 });
 
+test('automatic threshold compaction preserves transcript and continues generation', { timeout: 30000 }, async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'gd-auto-compact-'));
+  const workspace = join(dir, 'mind');
+  await mkdir(join(workspace, '.working-memory'), { recursive: true });
+  for (const p of ['SOUL.md', 'AGENT.md', ...memoryFiles]) await writeFile(join(workspace, p), 'Canonical fixture');
+  const faux = fauxProvider({ models: [{ id: 'small', contextWindow: 2048, maxTokens: 256 }] });
+  const models = createModels(); models.setProvider(faux.provider);
+  const runtime = await openRuntime({ workspace, database: join(dir, 'db.sqlite'), models, model: { provider: faux.provider.id, modelId: 'small' }, compaction: { enabled: true, reserveTokens: 512, keepRecentTokens: 100, backgroundTokens: 0 } });
+  try {
+    // Each factory works for generation and summarization; no scripted count of
+    // compaction invocations is assumed.
+    for (let i = 0; i < 10; i++) faux.appendResponses([() => fauxAssistantMessage('Compact synthetic reply ' + 'context '.repeat(60))]);
+    for (let i = 0; i < 5; i++) assert.equal((await(await runtime.root.submit({ type: 'input', content: `Input ${i} ` + 'historical fixture '.repeat(100) }, context)).wait(context)).status, 'done');
+    const entries = await runtime.root.commit(tx => tx.scanEntries({ conversationId: runtime.root.id, order: 'ascending' }, 100), context);
+    assert.ok(entries.items.some(e => e.kind === 'pi.compaction'));
+    assert.match(JSON.stringify(entries), /Input 0/);
+    assert.equal(await readFile(join(workspace, memoryFiles[0]), 'utf8'), 'Canonical fixture');
+  } finally { await runtime.close(); await rm(dir, { recursive: true, force: true }); }
+});
+
 test('mid-run storage commit failure closes harness and reports only safe category', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'gd-iofail-'));
   const workspace = join(dir, 'mind');
@@ -75,6 +97,16 @@ test('mid-run storage commit failure closes harness and reports only safe catego
     assert.match(JSON.stringify(logs), /session_failed/);
     assert.ok(!JSON.stringify(logs).includes('SENTINEL_IO_PRIVATE'));
     assert.ok(!JSON.stringify(logs).includes('PRIVATE_INPUT'));
+    // Health binding only needs the public bridge lifetime here; no protocol
+    // handler is invoked. Real bridge/client integration is tested separately.
+    const http = a2aHttp({ closed: runtime.harness.closed } as Awaited<ReturnType<typeof openA2A>>, 'x'.repeat(40));
+    await new Promise<void>(resolve => http.server.listen(0, '127.0.0.1', resolve));
+    try {
+      await new Promise(resolve => setImmediate(resolve));
+      const port = (http.server.address() as { port: number }).port;
+      assert.equal((await fetch(`http://127.0.0.1:${port}/health/live`)).status, 200);
+      assert.equal((await fetch(`http://127.0.0.1:${port}/health/ready`)).status, 503);
+    } finally { http.server.closeAllConnections(); await new Promise<void>(resolve => http.server.close(() => resolve())); }
   } finally { await runtime.close(); await rm(dir, { recursive: true, force: true }); }
 });
 
