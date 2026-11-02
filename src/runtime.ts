@@ -2,7 +2,7 @@ import { readFile, realpath, stat } from 'node:fs/promises';
 import { resolve, relative, isAbsolute } from 'node:path';
 import { BACKGROUND_CONTEXT } from '@earendil-works/chord/context';
 import type { Models } from '@earendil-works/pi-ai/models';
-import { Harness, createRegistry, defineExtension, section, type CompactionSettings } from '@earendil-works/pi-durable';
+import { Harness, createRegistry, defineExtension, section, type CompactionSettings, type Storage } from '@earendil-works/pi-durable';
 import { openNodeSqliteStorage } from '@earendil-works/pi-durable/storage/sqlite/node';
 import { NodeExecutionEnv } from '@earendil-works/pi-durable/env/node';
 import { createReadTool, type ReadToolInput } from '@earendil-works/pi-durable/tools';
@@ -13,10 +13,14 @@ export type RuntimeOptions = {
   workspace: string; database: string; models: Models;
   model: { provider: string; modelId: string };
   compaction?: CompactionSettings;
+  storage?: Storage;
+  agentId?: string;
   log?: (event: string, fields?: Record<string, string>) => void;
 };
 
 export async function openRuntime(options: RuntimeOptions) {
+  const openedAt = Date.now();
+  const log = (event: string, fields: Record<string, string> = {}) => options.log?.(event, { ...(options.agentId ? { agentId: options.agentId } : {}), ...fields });
   const workspace = await realpath(options.workspace);
   // SDK read has no path jail. Compose its exported tool with a realpath boundary;
   // remove this guard if the SDK supplies an equivalent constrained environment.
@@ -47,13 +51,13 @@ export async function openRuntime(options: RuntimeOptions) {
       return read.execute({ ...input, path }, api, ctx);
     } }],
   }));
-  const harness = await Harness.open(await openNodeSqliteStorage(options.database), {
+  const harness = await Harness.open(options.storage ?? await openNodeSqliteStorage(options.database), {
     models: options.models, registry,
     env: () => new NodeExecutionEnv({ cwd: workspace }),
     settings: { restartLimit: 3, stream: { timeoutMs: 120000, maxRetries: 0 },
       retry: { maxRetries: 2, maxAgentDelayMs: 10000 },
       compaction: { enabled: true, reserveTokens: 8192, keepRecentTokens: 16384, backgroundTokens: 8192, ...options.compaction } },
-    onReport: (_error, info) => options.log?.('durable_report', { category: info.type }),
+    onReport: (_error, info) => log('durable_report', { category: info.type }),
   }, context);
   try {
     const root = await harness.root(context, { agent: {
@@ -61,10 +65,11 @@ export async function openRuntime(options: RuntimeOptions) {
       instructions: `Read ${memoryFiles.join(', ')} before answering questions about your memory. Only read tools are available.`,
     } });
     harness.resume();
-    options.log?.('runtime_open', { conversationId: String(root.id) });
+    log('runtime_open', { conversationId: String(root.id), durationMs: String(Date.now() - openedAt), durableVersion: '1.4.0' });
     return { harness, root, close: async () => {
+      const started = Date.now();
       await harness.close(context);
-      options.log?.('runtime_closed', { conversationId: String(root.id) });
+      log('runtime_closed', { conversationId: String(root.id), durationMs: String(Date.now() - started) });
     } };
   } catch (error) { await harness.close(context); throw error; }
 }

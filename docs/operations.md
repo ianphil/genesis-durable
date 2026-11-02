@@ -13,8 +13,9 @@ provider exceptions, tool arguments/results or transcript to operational stdout.
 Use identifiers to correlate events; access private transcript only through
 separately authorized diagnostics. Task input/history and final answer are
 intentional authorized A2A content, not operational logs. These stores and backups
-are sensitive. The current schema lacks durations and consistent agent IDs in
-runtime events; those remain implementation gaps, not established guarantees.
+are sensitive. Runtime open/close events include durationMs and the pinned Durable version;
+provisioned runtime events include agentId. A2A submission events bridge task IDs
+to submission/conversation IDs. Per-phase/bootstrap timing is not yet uniform.
 
 Sentinel test covers provider error/private prompt not leaking to SDK console
 warnings/errors or terminal error status on a controlled provider failure. Existing
@@ -63,12 +64,18 @@ Agent resource/mount/non-root configuration was inspected in live #5/#6; no engi
 socket/admin keys. Operator/launcher must enforce single owner; there is no
 cross-process lock. Do not run competing provisioners or databases.
 
-Docker local log rotation is configured at 10 MiB x3 in spawned containers. Actual
-rotation under volume/load is not yet exercised. Private transcript retains data;
+Docker local log rotation is configured at 10 MiB x3 in spawned containers. A
+test-owned container using the same driver with smaller 1 MiB x2 bounds emitted
+about 6 MiB; docker logs retained about 1.22 MiB, demonstrating rotation. Container
+was removed. Exact 10 MiB x3 production-volume behavior was not load-tested. Private transcript retains data;
 10,000-task/soft disk admission guards are not a full storage quota. Set backup and
 retention access policies before real private minds. Secure egress filtering and
 production TLS remain deployment responsibilities, not provided by Docker cwd.
 
-Storage-open failure test rejects a directory used as database. Mid-run SQLITE_FULL,
-I/O failure, live readiness during storage failure and log rotation are not yet
-verified. Do not close #7 on the evidence above alone.
+Storage-open failure test rejects a directory used as database. A Proxy over the
+supported Storage interface injects a mid-run commit I/O failure: submit rejects,
+harness.closed reports failed, and lifecycle logs contain session_failed but neither
+sentinel error content nor prompt. This is interface-level failure injection, not
+physical SQLITE_FULL. Actual SQLITE_FULL, live HTTP readiness during storage failure,
+automatic compaction and concurrent-owner rejection remain unverified. Do not close
+#7 on this partial evidence alone.

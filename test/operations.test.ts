@@ -5,6 +5,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createModels } from '@earendil-works/pi-ai/models';
 import { fauxProvider, fauxAssistantMessage, fauxToolCall } from '@earendil-works/pi-ai/providers/faux';
+import { openNodeSqliteStorage } from '@earendil-works/pi-durable/storage/sqlite/node';
+import type { Storage } from '@earendil-works/pi-durable';
 import { openRuntime, context, memoryFiles } from '../src/runtime.js';
 
 test('bounded compaction retains transcript and mind; cold backup restores conversation', { timeout: 30000 }, async () => {
@@ -49,6 +51,31 @@ test('bounded compaction retains transcript and mind; cold backup restores conve
     assert.ok(!JSON.stringify(logs).includes('Private prompt'));
     assert.ok(!JSON.stringify(logs).includes('moss-812'));
   } finally { await runtime?.close(); await rm(dir, { recursive: true, force: true }); await rm(dir + '-backup', { recursive: true, force: true }); }
+});
+
+test('mid-run storage commit failure closes harness and reports only safe category', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'gd-iofail-'));
+  const workspace = join(dir, 'mind');
+  await mkdir(join(workspace, '.working-memory'), { recursive: true });
+  for (const p of ['SOUL.md', 'AGENT.md', ...memoryFiles]) await writeFile(join(workspace, p), 'Synthetic fixture');
+  const backend = await openNodeSqliteStorage(join(dir, 'state.sqlite'));
+  let fail = false;
+  const storage = new Proxy(backend, { get(target, key) {
+    if (key === 'commit') return async (...args: Parameters<Storage['commit']>) => { if (fail) throw Error('SENTINEL_IO_PRIVATE'); return target.commit(...args); };
+    const value = Reflect.get(target, key); return typeof value === 'function' ? value.bind(target) : value;
+  } });
+  const faux = fauxProvider(); const models = createModels(); models.setProvider(faux.provider);
+  const logs: unknown[] = [];
+  const runtime = await openRuntime({ workspace, database: '', storage, models, model: { provider: faux.provider.id, modelId: faux.getModel().id }, log: (event, fields) => logs.push({ event, fields }) });
+  try {
+    fail = true;
+    await assert.rejects(runtime.root.submit({ type: 'input', content: 'PRIVATE_INPUT' }, context));
+    const end = await runtime.harness.closed;
+    assert.equal(end.reason, 'failed');
+    assert.match(JSON.stringify(logs), /session_failed/);
+    assert.ok(!JSON.stringify(logs).includes('SENTINEL_IO_PRIVATE'));
+    assert.ok(!JSON.stringify(logs).includes('PRIVATE_INPUT'));
+  } finally { await runtime.close(); await rm(dir, { recursive: true, force: true }); }
 });
 
 test('storage open failure rejects; outside symlink cannot be read', async () => {

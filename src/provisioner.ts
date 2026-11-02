@@ -100,7 +100,7 @@ export async function openProvisioner(config: ProvisionerConfig, docker = new Do
           const receipt = await migration.wait();
           if (receipt.StatusCode !== 0) throw new Error('migration_failed');
           await migration.remove();
-          const container = await docker.createContainer({ ...base, name: name(id), Env: [`GENESIS_MODEL_URL=${config.modelUrl}`, 'GENESIS_MODEL_KEY_FILE=/run/secrets/model', 'GENESIS_LISTENER_KEY_FILE=/run/secrets/listener', `GENESIS_NAME=${row.name}`, `GENESIS_A2A_URL=${listener(id)}/a2a`] });
+          const container = await docker.createContainer({ ...base, name: name(id), Env: [`GENESIS_MODEL_URL=${config.modelUrl}`, 'GENESIS_MODEL_KEY_FILE=/run/secrets/model', 'GENESIS_LISTENER_KEY_FILE=/run/secrets/listener', `GENESIS_NAME=${row.name}`, `GENESIS_AGENT_ID=${id}`, `GENESIS_A2A_URL=${listener(id)}/a2a`] });
           current = { container, info: await container.inspect() };
         }
         update(id, 'creating', 'runtime');

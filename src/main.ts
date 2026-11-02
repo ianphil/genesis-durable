@@ -15,11 +15,13 @@ async function main() {
   const keyFile = process.env.GENESIS_MODEL_KEY_FILE;
   if (!endpoint || !keyFile) throw new Error('model_configuration');
   const models = await runtimeModels(endpoint, keyFile);
-  const runtime = await openRuntime({ workspace, database, models, model: defaultModel, log });
+  const agentId = process.env.GENESIS_AGENT_ID;
+  const agentLog = (event: string, fields: Record<string, string> = {}) => log(event, { ...(agentId ? { agentId } : {}), ...fields });
+  const runtime = await openRuntime({ workspace, database, models, model: defaultModel, agentId, log: agentLog });
   const tokenFile = process.env.GENESIS_LISTENER_KEY_FILE;
   if (!tokenFile) { await runtime.close(); throw new Error('listener_configuration'); }
   const bridge = await openA2A({ runtime, database: join(dirname(database), 'a2a.sqlite'),
-    name: process.env.GENESIS_NAME ?? 'genesis', url: process.env.GENESIS_A2A_URL ?? 'http://127.0.0.1:8080/a2a', log });
+    name: process.env.GENESIS_NAME ?? 'genesis', url: process.env.GENESIS_A2A_URL ?? 'http://127.0.0.1:8080/a2a', log: agentLog });
   const http = a2aHttp(bridge, (await readFile(tokenFile, 'utf8')).trim());
   http.server.listen(8080, '0.0.0.0', () => log('listener_ready'));
   let stopping = false;
