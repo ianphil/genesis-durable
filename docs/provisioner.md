@@ -1,4 +1,4 @@
-# Docker provisioning API (#5 — in progress)
+# Docker provisioning API (#5)
 
 Entrypoint: `node dist/src/provisioner-main.js` in the shared image. The provisioner
 mounts the Docker socket; agents never do. Socket access is effectively host-root.
@@ -15,6 +15,7 @@ Required configuration:
   agent bind mounts are resolved by the Docker daemon on the host.
 - GENESIS_TEMPLATE_KEY_FILE: optional private GitHub source token file.
 - GENESIS_ADMIN_KEY_FILE: random base64url admin token, >=32 characters.
+- GENESIS_HEALTH_PORT=8081 for the provisioner image healthcheck.
 
 Run provisioner as the data-owning non-root UID/GID with Docker socket supplementary
 group. Agent containers use that UID/GID. Rootfs read-only, drop capabilities,
@@ -47,7 +48,39 @@ migration helper ran; constrained non-root agent became healthy; stop/start pass
 provisioner restart retained/reconciled same agent. Agent mounts inspected: only
 workspace, state, listener key and model key, no socket/admin/template key.
 
-Not complete: interrupted creation stages, orphan/conflict recovery and failure
-matrix need further tests. Lifecycle observability and deployment examples need
-finishing. Test resources under `/tmp/gd-issue5` contain private keys/databases;
-test containers currently remain running for continuation. No gateway mutations.
+Additional verification: seven tests pass, including restart adoption of an owned
+partial container, persisted stop intent, failed start/retry, and refusal to mutate
+an unrelated label/name conflict. Lifecycle transitions emit safe structured events.
+A live SIGKILL during creation preserved request identity after restart; incomplete
+bootstrap was reported failed rather than duplicated or silently regenerated.
+Operator must inspect/move aside failed staging before retry, as in bootstrap docs.
+This is safe inspectable recovery, not automatic completion of interrupted model work.
+
+All test-owned containers were stopped/removed. Test evidence/private keys and
+databases remain under `/tmp/gd-issue5`; do not commit or share them. No gateway
+mutations. Latest image rebuilt after healthcheck port correction; the live lifecycle
+run preceded that minor health-route change. Full interruption-at-every-stage,
+backup/restore, adversarial isolation and gateway publication remain later acceptance
+work, not claims established here.
+
+Example (create keys privately first; paths must exist and be readable by the UID):
+
+```sh
+docker run -d --name genesis-provisioner \
+  --user "$(id -u):$(id -g)" --group-add "$(stat -c %g /var/run/docker.sock)" \
+  --read-only --cap-drop ALL --security-opt no-new-privileges \
+  --tmpfs /tmp:rw,noexec,nosuid,size=64m \
+  --log-driver local --log-opt max-size=10m --log-opt max-file=3 \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -v "$DATA_ROOT:$DATA_ROOT" -v "$MODEL_KEY_FILE:$MODEL_KEY_FILE:ro" \
+  -v "$ADMIN_KEY_FILE:$ADMIN_KEY_FILE:ro" -v "$TEMPLATE_KEY_FILE:$TEMPLATE_KEY_FILE:ro" \
+  -e GENESIS_DATA_ROOT="$DATA_ROOT" -e GENESIS_AGENT_IMAGE="$IMAGE_ID" \
+  -e GENESIS_NAMESPACE=local -e GENESIS_MODEL_URL="$MODEL_URL" \
+  -e GENESIS_MODEL_KEY_FILE="$MODEL_KEY_FILE" \
+  -e GENESIS_ADMIN_KEY_FILE="$ADMIN_KEY_FILE" \
+  -e GENESIS_TEMPLATE_KEY_FILE="$TEMPLATE_KEY_FILE" -e GENESIS_HEALTH_PORT=8081 \
+  -p 127.0.0.1:8081:8081 "$IMAGE_ID" node dist/src/provisioner-main.js
+```
+
+Provisioner stop/replacement does not stop agent containers; restart reconciles
+recorded desired state. An agent's explicit API stop preserves all data and work.

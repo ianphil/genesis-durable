@@ -7,25 +7,32 @@ import { bootstrap, type Character } from './bootstrap.js';
 import { runtimeModels, defaultModel } from './model.js';
 
 type Agent = { id: string; request: string; hash: string; name: string; character: string; purpose: string; state: string; stage: string; desired: string; failure: string | null; image: string; revision: string | null; created: string; updated: string };
-export type ProvisionerConfig = { root: string; image: string; modelUrl: string; modelKeyFile: string; templateKeyFile?: string; namespace: string };
+export type ProvisionerConfig = { root: string; image: string; modelUrl: string; modelKeyFile: string; templateKeyFile?: string; namespace: string; log?: (event: string, fields: Record<string, string>) => void };
 export class ApiError extends Error { constructor(public status: number, public code: string) { super(code); } }
 export function validateCreate(value: unknown): Character & { requestId: string; model: string } {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new ApiError(400, 'invalid_input');
   const v = value as Record<string, unknown>;
-  if (Object.keys(v).some(k => !['requestId', 'name', 'character', 'purpose', 'model'].includes(k)) || typeof v.requestId !== 'string' || !/^[a-f0-9-]{36}$/i.test(v.requestId) || typeof v.name !== 'string' || !/^[a-z][a-z0-9-]{0,47}$/.test(v.name) || [v.character, v.purpose].some(x => typeof x !== 'string' || !x.trim() || Buffer.byteLength(x) > 8192) || (v.model !== undefined && v.model !== defaultModel.modelId)) throw new ApiError(400, 'invalid_input');
+  if (Object.keys(v).some(k => !['requestId', 'name', 'character', 'purpose', 'model'].includes(k)) || typeof v.requestId !== 'string' || !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(v.requestId) || typeof v.name !== 'string' || !/^[a-z][a-z0-9-]{0,47}$/.test(v.name) || [v.character, v.purpose].some(x => typeof x !== 'string' || !x.trim() || Buffer.byteLength(x) > 8192) || (v.model !== undefined && v.model !== defaultModel.modelId)) throw new ApiError(400, 'invalid_input');
   return { requestId: v.requestId, name: v.name, character: v.character as string, purpose: v.purpose as string, model: defaultModel.modelId };
 }
 
 export async function openProvisioner(config: ProvisionerConfig, docker = new Docker({ socketPath: '/var/run/docker.sock' })) {
   if (!isAbsolute(config.root) || resolve(config.root) !== config.root || !/^[a-z][a-z0-9-]{0,23}$/.test(config.namespace) || !/^sha256:[a-f0-9]{64}$/.test(config.image)) throw new Error('provisioner_configuration');
+  if (!isAbsolute(config.modelKeyFile) || (config.templateKeyFile && !isAbsolute(config.templateKeyFile))) throw new Error('provisioner_configuration');
+  const endpoint = new URL(config.modelUrl);
+  if (!['http:', 'https:'].includes(endpoint.protocol) || endpoint.username || endpoint.password) throw new Error('provisioner_configuration');
   await mkdir(config.root, { recursive: true, mode: 0o700 });
+  if ((await lstat(config.root)).isSymbolicLink()) throw new Error('provisioner_configuration');
   const db = new Database(join(config.root, 'provisioning.sqlite'));
   db.pragma('journal_mode = WAL');
   db.exec('CREATE TABLE IF NOT EXISTS agents (id TEXT PRIMARY KEY, request TEXT UNIQUE, hash TEXT, name TEXT UNIQUE, character TEXT, purpose TEXT, state TEXT, stage TEXT, desired TEXT, failure TEXT, image TEXT, revision TEXT, created TEXT, updated TEXT)');
   const active = new Map<string, Promise<void>>();
   let closing = false;
   const get = (id: string) => db.prepare('SELECT * FROM agents WHERE id=?').get(id) as Agent | undefined;
-  const update = (id: string, state: string, stage: string, failure: string | null = null) => db.prepare('UPDATE agents SET state=?, stage=?, failure=?, updated=? WHERE id=?').run(state, stage, failure, new Date().toISOString(), id);
+  const update = (id: string, state: string, stage: string, failure: string | null = null) => {
+    db.prepare('UPDATE agents SET state=?, stage=?, failure=?, updated=? WHERE id=?').run(state, stage, failure, new Date().toISOString(), id);
+    config.log?.('provisioning_transition', { agentId: id, operationId: id, state, stage, ...(failure ? { category: failure } : {}) });
+  };
   const summary = (row: Agent) => ({ id: row.id, name: row.name, model: defaultModel.modelId, state: row.state, stage: row.stage, desiredState: row.desired, operationId: row.id, failure: row.failure ? { code: row.failure, correlationId: row.id } : null, provenance: { imageDigest: row.image, templateRevision: row.revision }, createdAt: row.created, updatedAt: row.updated });
   const name = (id: string) => `gd-${config.namespace}-${id}`;
   const owned = async (id: string) => {
@@ -93,7 +100,10 @@ export async function openProvisioner(config: ProvisionerConfig, docker = new Do
           await new Promise(resolve => setTimeout(resolve, 1000));
         }
         throw new Error('readiness_timeout');
-      } catch { update(id, 'failed', 'failed', 'provisioning_failed'); }
+      } catch (error) {
+        const category = error instanceof Error && ['container_not_owned', 'migration_not_owned', 'migration_failed', 'runtime_not_ready', 'readiness_timeout', 'bootstrap_incomplete_or_busy'].includes(error.message) ? error.message : 'provisioning_failed';
+        update(id, 'failed', 'failed', category);
+      }
     })().finally(() => active.delete(id));
     active.set(id, work);
   };
@@ -113,6 +123,7 @@ export async function openProvisioner(config: ProvisionerConfig, docker = new Do
     list(limit = 50, cursor = '') { if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new ApiError(400, 'invalid_limit'); const rows = db.prepare('SELECT * FROM agents WHERE id > ? ORDER BY id LIMIT ?').all(cursor, limit + 1) as Agent[]; return { agents: rows.slice(0, limit).map(summary), nextCursor: rows.length > limit ? rows[limit - 1].id : null }; },
     inspect(id: string) { const row = get(id); if (!row) throw new ApiError(404, 'not_found'); return summary(row); },
     lifecycle(id: string, desired: 'ready' | 'stopped') {
+      if (closing) throw new ApiError(503, 'stopping');
       const row = get(id); if (!row) throw new ApiError(404, 'not_found');
       if (active.has(id)) { if (row.desired !== desired) throw new ApiError(409, 'operation_busy'); return summary(row); }
       db.prepare('UPDATE agents SET desired=? WHERE id=?').run(desired, id);

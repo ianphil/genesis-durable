@@ -7,11 +7,12 @@ async function main() {
   const required = (name: string) => { const value = process.env[name]; if (!value) throw new Error('configuration'); return value; };
   const token = (await readFile(required('GENESIS_ADMIN_KEY_FILE'), 'utf8')).trim();
   if (!/^[A-Za-z0-9_-]{32,256}$/.test(token)) throw new Error('configuration');
-  const provisioner = await openProvisioner({ root: required('GENESIS_DATA_ROOT'), image: required('GENESIS_AGENT_IMAGE'), namespace: required('GENESIS_NAMESPACE'), modelUrl: required('GENESIS_MODEL_URL'), modelKeyFile: required('GENESIS_MODEL_KEY_FILE'), templateKeyFile: process.env.GENESIS_TEMPLATE_KEY_FILE });
+  const provisioner = await openProvisioner({ root: required('GENESIS_DATA_ROOT'), image: required('GENESIS_AGENT_IMAGE'), namespace: required('GENESIS_NAMESPACE'), modelUrl: required('GENESIS_MODEL_URL'), modelKeyFile: required('GENESIS_MODEL_KEY_FILE'), templateKeyFile: process.env.GENESIS_TEMPLATE_KEY_FILE, log: (event, fields) => console.log(JSON.stringify({ timestamp: new Date().toISOString(), severity: 'info', event, ...fields })) });
   const server = createServer(async (req, res) => {
     const correlationId = randomUUID();
     const json = (status: number, body: unknown) => { res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' }); res.end(JSON.stringify(body)); };
     try {
+      if (req.method === 'GET' && req.url === '/health/ready') return json(200, { status: 'ready' });
       const expected = Buffer.from(`Bearer ${token}`), supplied = Buffer.from(req.headers.authorization ?? '');
       if (expected.length !== supplied.length || !timingSafeEqual(expected, supplied)) throw new ApiError(401, 'unauthorized');
       const url = new URL(req.url ?? '/', 'http://localhost');

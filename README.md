@@ -8,7 +8,8 @@ reachable through A2A.
 read-only mind access and health endpoints is implemented. Controlled no-Git
 [Genesis bootstrap](docs/bootstrap.md) is available as a provisioner function.
 An authenticated [direct A2A listener](docs/a2a.md) supports persistent tasks.
-Provisioning API and gateway registration are not implemented. See [runtime setup and evidence](docs/runtime.md).
+A Docker-hosted [provisioning API](docs/provisioner.md) creates and manages local
+agent containers. Gateway registration is not implemented. See [runtime setup and evidence](docs/runtime.md).
 
 ## Design
 
