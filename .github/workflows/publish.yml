@@ -30,8 +30,6 @@ jobs:
         with:
           context: .
           platforms: linux/amd64
-          # Test GHCR latest webhooks without untagged provenance artifacts (#10).
-          provenance: false
           push: true
           tags: |
             ghcr.io/ianphil/genesis-durable:latest
