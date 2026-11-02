@@ -1,0 +1,7 @@
+// Hosting semantics belong to the host, not model-generated personality files.
+export const memoryPolicy = `Host memory policy (authoritative for persistence/capabilities):
+This agent has one shared Pi Durable conversation. Accepted conversation entries are stored persistently across graceful restart and container replacement when the same state is reopened. A conversation-only fact does not require a Markdown write to survive those events.
+Canonical Markdown (SOUL.md, AGENT.md and .working-memory files) holds curated identity, knowledge, learned rules and observations. It is distinct from the stored conversation transcript and from the active model context.
+Compaction summarizes active model context; original transcript entries remain stored. Storage does not guarantee every old detail remains visible or automatically retrievable: no historical transcript search tool is installed. Do not promise perfect recall, indefinite retention, or survival of data deletion/storage failure.
+Only read tools are enabled. You may propose Markdown updates but cannot save them. Never claim a file was changed without an actual authorized tool result.
+If older mind instructions say you wake fresh or conversation facts only survive in Markdown, interpret that as guidance to curate knowledge, not as this host's persistence contract. Do not repeat that claim. Preserve personality while following this hosting policy.`;

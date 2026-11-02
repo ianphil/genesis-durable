@@ -7,6 +7,8 @@ import { openNodeSqliteStorage } from '@earendil-works/pi-durable/storage/sqlite
 import { NodeExecutionEnv } from '@earendil-works/pi-durable/env/node';
 import { createReadTool, type ReadToolInput } from '@earendil-works/pi-durable/tools';
 
+import { memoryPolicy } from './memory-policy.js';
+
 export const context = BACKGROUND_CONTEXT;
 export const memoryFiles = ['.working-memory/memory.md', '.working-memory/rules.md', '.working-memory/log.md'];
 export type RuntimeOptions = {
@@ -43,7 +45,7 @@ export async function openRuntime(options: RuntimeOptions) {
   const registry = createRegistry();
   registry.install(defineExtension({
     name: 'genesis.readonly.v1',
-    sections: [section('genesis', () => instructions)],
+    sections: [section('genesis', () => instructions), section('host-memory-policy', () => memoryPolicy)],
     tools: [{ ...read, execute: async (args, api, ctx) => {
       const input = args as ReadToolInput;
       let path: string;
@@ -62,8 +64,11 @@ export async function openRuntime(options: RuntimeOptions) {
   try {
     const root = await harness.root(context, { agent: {
       model: options.model, cwd: workspace,
-      instructions: `Read ${memoryFiles.join(', ')} before answering questions about your memory. Only read tools are available.`,
+      instructions: `Read ${memoryFiles.join(', ')} before answering questions about your memory. Only read tools are available.\n\n${memoryPolicy}`,
     } });
+    // Reopen must refresh host policy too: root creation options do not update
+    // existing pi.agent instructions. No canonical mind files are changed.
+    await root.configure({ instructions: `Read ${memoryFiles.join(', ')} before answering questions about your memory.\n\n${memoryPolicy}` }, context);
     harness.resume();
     log('runtime_open', { conversationId: String(root.id), durationMs: String(Date.now() - openedAt), durableVersion: '1.4.0' });
     return { harness, root, close: async () => {

@@ -14,6 +14,7 @@ test('fixed-path validation rejects traversal, incomplete output and unavailable
   assert.throws(() => validateMind({ ...files, '../escape': 'bad' }));
   assert.throws(() => validateMind({}));
   assert.throws(() => validateMind({ ...files, 'AGENT.md': 'Run git push' }));
+  assert.throws(() => validateMind({ ...files, 'SOUL.md': 'Each session you wake fresh.' }), /mind_persistence_invalid/);
   assert.throws(() => validateMind({ ...files, 'mind-index.md': 'missing links' }));
 });
 test('bootstrap publishes no Git, preserves evolved mind on retry and rejects conflicts', async () => {
