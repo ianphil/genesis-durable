@@ -39,3 +39,9 @@ successful full bootstrap retry; no partial first attempt was published. Evidenc
 under memory9/verified-merged. These are inspected live examples, not guarantees
 against every future contradictory paraphrase. No gateway resources/containers
 were created for these probes.
+
+Cleanup after acceptance: corrected Juniper workspace/state promoted to the retained
+private issue6 agent directory; redundant memory9 copies, known-wrong instruction
+backup and diagnostics removed at user request. Historical evidence paths above
+identify where probes ran, not files promised retained. No test containers remain.
+The retained Juniper now contains the corrected continuity wording and tested state.
