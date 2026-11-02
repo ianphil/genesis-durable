@@ -1,13 +1,18 @@
 import { createServer } from 'node:http';
 import { timingSafeEqual, randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
+import { ingress } from './ingress.js';
 import { ApiError, openProvisioner } from './provisioner.js';
 
 async function main() {
   const required = (name: string) => { const value = process.env[name]; if (!value) throw new Error('configuration'); return value; };
   const token = (await readFile(required('GENESIS_ADMIN_KEY_FILE'), 'utf8')).trim();
   if (!/^[A-Za-z0-9_-]{32,256}$/.test(token)) throw new Error('configuration');
-  const provisioner = await openProvisioner({ root: required('GENESIS_DATA_ROOT'), image: required('GENESIS_AGENT_IMAGE'), namespace: required('GENESIS_NAMESPACE'), modelUrl: required('GENESIS_MODEL_URL'), modelKeyFile: required('GENESIS_MODEL_KEY_FILE'), templateKeyFile: process.env.GENESIS_TEMPLATE_KEY_FILE, log: (event, fields) => console.log(JSON.stringify({ timestamp: new Date().toISOString(), severity: 'info', event, ...fields })) });
+  const provisioner = await openProvisioner({ root: required('GENESIS_DATA_ROOT'), image: required('GENESIS_AGENT_IMAGE'), namespace: required('GENESIS_NAMESPACE'), modelUrl: required('GENESIS_MODEL_URL'), modelKeyFile: required('GENESIS_MODEL_KEY_FILE'), templateKeyFile: process.env.GENESIS_TEMPLATE_KEY_FILE,
+    gateway: process.env.GENESIS_GATEWAY_URL ? { url: required('GENESIS_GATEWAY_URL'), adminKeyFile: required('GENESIS_GATEWAY_ADMIN_KEY_FILE'), teamId: required('GENESIS_GATEWAY_TEAM_ID'), grantLockDirectory: required('GENESIS_GATEWAY_GRANT_LOCK'), ingressUrl: required('GENESIS_INGRESS_URL'), network: required('GENESIS_DOCKER_NETWORK') } : undefined,
+    log: (event, fields) => console.log(JSON.stringify({ timestamp: new Date().toISOString(), severity: 'info', event, ...fields })) });
+  const proxy = process.env.GENESIS_GATEWAY_URL ? ingress(id => provisioner.route(id)) : undefined;
+  proxy?.listen(8082, '0.0.0.0');
   const server = createServer(async (req, res) => {
     const correlationId = randomUUID();
     const json = (status: number, body: unknown) => { res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' }); res.end(JSON.stringify(body)); };
@@ -34,7 +39,7 @@ async function main() {
   server.requestTimeout = 10000; server.headersTimeout = 5000;
   server.listen(8081, '0.0.0.0', () => console.log(JSON.stringify({ event: 'provisioner_listening' })));
   let closing = false;
-  const close = async () => { if (closing) return; closing = true; server.close(); server.closeAllConnections(); await provisioner.close(); };
+  const close = async () => { if (closing) return; closing = true; server.close(); server.closeAllConnections(); proxy?.close(); proxy?.closeAllConnections(); await provisioner.close(); };
   process.once('SIGTERM', () => { void close(); }); process.once('SIGINT', () => { void close(); });
 }
 void main().catch(() => { console.error(JSON.stringify({ event: 'provisioner_startup_failed' })); process.exitCode = 1; });

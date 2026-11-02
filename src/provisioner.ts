@@ -5,9 +5,10 @@ import { mkdir, writeFile, readFile, lstat } from 'node:fs/promises';
 import { join, resolve, isAbsolute } from 'node:path';
 import { bootstrap, type Character } from './bootstrap.js';
 import { runtimeModels, defaultModel } from './model.js';
+import { gateway, type GatewayConfig, type Registration } from './gateway.js';
 
 type Agent = { id: string; request: string; hash: string; name: string; character: string; purpose: string; state: string; stage: string; desired: string; failure: string | null; image: string; revision: string | null; created: string; updated: string };
-export type ProvisionerConfig = { root: string; image: string; modelUrl: string; modelKeyFile: string; templateKeyFile?: string; namespace: string; log?: (event: string, fields: Record<string, string>) => void };
+export type ProvisionerConfig = { root: string; image: string; modelUrl: string; modelKeyFile: string; templateKeyFile?: string; namespace: string; gateway?: GatewayConfig & { ingressUrl: string; network: string }; log?: (event: string, fields: Record<string, string>) => void };
 export class ApiError extends Error { constructor(public status: number, public code: string) { super(code); } }
 export function validateCreate(value: unknown): Character & { requestId: string; model: string } {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new ApiError(400, 'invalid_input');
@@ -26,6 +27,12 @@ export async function openProvisioner(config: ProvisionerConfig, docker = new Do
   const db = new Database(join(config.root, 'provisioning.sqlite'));
   db.pragma('journal_mode = WAL');
   db.exec('CREATE TABLE IF NOT EXISTS agents (id TEXT PRIMARY KEY, request TEXT UNIQUE, hash TEXT, name TEXT UNIQUE, character TEXT, purpose TEXT, state TEXT, stage TEXT, desired TEXT, failure TEXT, image TEXT, revision TEXT, created TEXT, updated TEXT)');
+  db.exec('CREATE TABLE IF NOT EXISTS gateway_registrations (agent TEXT PRIMARY KEY, registration TEXT NOT NULL)');
+  const publication = config.gateway ? gateway(config.gateway) : undefined;
+  if (config.gateway && (!/^[a-zA-Z0-9_-]+$/.test(config.gateway.network) || !['http:', 'https:'].includes(new URL(config.gateway.ingressUrl).protocol))) throw new Error('gateway_network_configuration');
+  const registration = (id: string): Registration | undefined => { const row = db.prepare('SELECT registration FROM gateway_registrations WHERE agent=?').get(id) as { registration: string } | undefined; return row ? JSON.parse(row.registration) : undefined; };
+  const listener = (id: string) => config.gateway ? `${config.gateway.ingressUrl.replace(/\/$/, '')}/agents/${id}` : `http://${name(id)}:8080`;
+  const gatewayAgent = async (row: Agent) => ({ name: `gd-${config.namespace}-${row.name}`, listener: listener(row.id), token: (await readFile(join(config.root, 'agents', row.id, 'listener-key'), 'utf8')).trim() });
   const active = new Map<string, Promise<void>>();
   let closing = false;
   const get = (id: string) => db.prepare('SELECT * FROM agents WHERE id=?').get(id) as Agent | undefined;
@@ -50,6 +57,11 @@ export async function openProvisioner(config: ProvisionerConfig, docker = new Do
       try {
         let current = await owned(id);
         if (row.desired === 'stopped') {
+          if (publication && (current || registration(id))) {
+            update(id, 'creating', 'withdrawing');
+            await publication.withdraw(await gatewayAgent(row), registration(id));
+            db.prepare('DELETE FROM gateway_registrations WHERE agent=?').run(id);
+          }
           if (current?.info.State.Running) await current.container.stop({ t: 10 });
           update(id, 'stopped', 'stopped'); return;
         }
@@ -62,18 +74,18 @@ export async function openProvisioner(config: ProvisionerConfig, docker = new Do
           db.prepare('UPDATE agents SET revision=? WHERE id=?').run(mind.revision, id);
           const state = join(agentDirectory, 'state');
           await mkdir(state, { recursive: true, mode: 0o700 });
-          const listener = join(agentDirectory, 'listener-key');
-          try { await writeFile(listener, randomBytes(32).toString('base64url'), { flag: 'wx', mode: 0o600 }); } catch (e) { if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e; }
-          if (!(await lstat(listener)).isFile()) throw new Error('credential_invalid');
+          const listenerKey = join(agentDirectory, 'listener-key');
+          try { await writeFile(listenerKey, randomBytes(32).toString('base64url'), { flag: 'wx', mode: 0o600 }); } catch (e) { if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e; }
+          if (!(await lstat(listenerKey)).isFile()) throw new Error('credential_invalid');
           // Paths are Docker HOST paths. Provisioner must mount data/key paths at
           // their identical absolute locations; callers never supply paths.
           const mounts = [
             { Type: 'bind' as const, Source: mind.workspace, Target: '/workspace', ReadOnly: true },
             { Type: 'bind' as const, Source: state, Target: '/state' },
             { Type: 'bind' as const, Source: config.modelKeyFile, Target: '/run/secrets/model', ReadOnly: true },
-            { Type: 'bind' as const, Source: listener, Target: '/run/secrets/listener', ReadOnly: true },
+            { Type: 'bind' as const, Source: listenerKey, Target: '/run/secrets/listener', ReadOnly: true },
           ];
-          const base = { Image: row.image, User: `${process.getuid?.() ?? 1000}:${process.getgid?.() ?? 1000}`, Labels: { 'genesis.namespace': config.namespace, 'genesis.agent': id }, HostConfig: { Mounts: mounts, ReadonlyRootfs: true, CapDrop: ['ALL'], SecurityOpt: ['no-new-privileges'], Memory: 1073741824, NanoCpus: 1000000000, PidsLimit: 128, Tmpfs: { '/tmp': 'rw,noexec,nosuid,size=64m' }, LogConfig: { Type: 'local', Config: { 'max-size': '10m', 'max-file': '3' } } } };
+          const base = { Image: row.image, User: `${process.getuid?.() ?? 1000}:${process.getgid?.() ?? 1000}`, Labels: { 'genesis.namespace': config.namespace, 'genesis.agent': id }, HostConfig: { Mounts: mounts, ...(config.gateway ? { NetworkMode: config.gateway.network } : {}), ReadonlyRootfs: true, CapDrop: ['ALL'], SecurityOpt: ['no-new-privileges'], Memory: 1073741824, NanoCpus: 1000000000, PidsLimit: 128, Tmpfs: { '/tmp': 'rw,noexec,nosuid,size=64m' }, LogConfig: { Type: 'local', Config: { 'max-size': '10m', 'max-file': '3' } } } };
           update(id, 'creating', 'storage');
           const migrationName = `${name(id)}-migration`;
           let migration = docker.getContainer(migrationName);
@@ -88,7 +100,7 @@ export async function openProvisioner(config: ProvisionerConfig, docker = new Do
           const receipt = await migration.wait();
           if (receipt.StatusCode !== 0) throw new Error('migration_failed');
           await migration.remove();
-          const container = await docker.createContainer({ ...base, name: name(id), Env: [`GENESIS_MODEL_URL=${config.modelUrl}`, 'GENESIS_MODEL_KEY_FILE=/run/secrets/model', 'GENESIS_LISTENER_KEY_FILE=/run/secrets/listener', `GENESIS_NAME=${row.name}`, `GENESIS_A2A_URL=http://${name(id)}:8080/a2a`] });
+          const container = await docker.createContainer({ ...base, name: name(id), Env: [`GENESIS_MODEL_URL=${config.modelUrl}`, 'GENESIS_MODEL_KEY_FILE=/run/secrets/model', 'GENESIS_LISTENER_KEY_FILE=/run/secrets/listener', `GENESIS_NAME=${row.name}`, `GENESIS_A2A_URL=${listener(id)}/a2a`] });
           current = { container, info: await container.inspect() };
         }
         update(id, 'creating', 'runtime');
@@ -96,7 +108,15 @@ export async function openProvisioner(config: ProvisionerConfig, docker = new Do
         for (let attempt = 0; attempt < 60; attempt++) {
           const info = await current.container.inspect();
           if (!info.State.Running || info.State.Health?.Status === 'unhealthy') throw new Error('runtime_not_ready');
-          if (info.State.Health?.Status === 'healthy') { update(id, 'ready', 'runtime'); return; }
+          if (info.State.Health?.Status === 'healthy') {
+            if (publication) {
+              update(id, 'creating', 'publish');
+              await publication.publish(await gatewayAgent(row), registration(id), value => {
+                db.prepare('INSERT OR REPLACE INTO gateway_registrations VALUES(?,?)').run(id, JSON.stringify(value));
+              });
+            }
+            update(id, 'ready', publication ? 'published' : 'runtime'); return;
+          }
           await new Promise(resolve => setTimeout(resolve, 1000));
         }
         throw new Error('readiness_timeout');
@@ -121,6 +141,11 @@ export async function openProvisioner(config: ProvisionerConfig, docker = new Do
       reconcile(id); return { existing: false, agent: summary(get(id)!) };
     },
     list(limit = 50, cursor = '') { if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new ApiError(400, 'invalid_limit'); const rows = db.prepare('SELECT * FROM agents WHERE id > ? ORDER BY id LIMIT ?').all(cursor, limit + 1) as Agent[]; return { agents: rows.slice(0, limit).map(summary), nextCursor: rows.length > limit ? rows[limit - 1].id : null }; },
+    route(id: string) {
+      const row = get(id);
+      if (!row || row.desired !== 'ready') throw new ApiError(404, 'not_found');
+      return { host: name(id), port: 8080 };
+    },
     inspect(id: string) { const row = get(id); if (!row) throw new ApiError(404, 'not_found'); return summary(row); },
     lifecycle(id: string, desired: 'ready' | 'stopped') {
       if (closing) throw new ApiError(503, 'stopping');

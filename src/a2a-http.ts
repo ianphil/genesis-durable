@@ -2,6 +2,7 @@ import { createServer } from 'node:http';
 import { timingSafeEqual } from 'node:crypto';
 import { AgentCard } from '@a2a-js/sdk';
 import { JsonRpcTransportHandler, ServerCallContext } from '@a2a-js/sdk/server';
+import { gatewayTaskTransport } from './gateway-tasks.js';
 import type { openA2A } from './a2a.js';
 
 export function a2aHttp(bridge: Awaited<ReturnType<typeof openA2A>>, token: string) {
@@ -15,12 +16,15 @@ export function a2aHttp(bridge: Awaited<ReturnType<typeof openA2A>>, token: stri
     if (expected.length !== supplied.length || !timingSafeEqual(expected, supplied)) { req.resume(); return json(401, { error: 'Unauthorized' }); }
     if (req.method === 'GET' && req.url === '/.well-known/agent-card.json') return json(200, AgentCard.toJSON(bridge.card));
     if (!ready) { req.resume(); return json(503, { error: 'Unavailable' }); }
-    if (req.method !== 'POST' || req.url !== '/a2a') { req.resume(); return json(404, { error: 'Not found' }); }
+    if (req.method !== 'POST' || !['/a2a', '/'].includes(req.url ?? '')) { req.resume(); return json(404, { error: 'Not found' }); }
     if (!/^application\/(?:a2a\+)?json(?:;|$)/i.test(req.headers['content-type'] ?? '')) { req.resume(); return json(415, { error: 'Content type' }); }
     try {
       const chunks: Buffer[] = []; let bytes = 0;
       for await (const chunk of req) { bytes += chunk.length; if (bytes > 32768) { req.resume(); return json(413, { error: 'Request too large' }); } chunks.push(Buffer.from(chunk)); }
-      const result = await new JsonRpcTransportHandler(bridge.handler).handle(Buffer.concat(chunks).toString('utf8'), new ServerCallContext({ requestedVersion: typeof req.headers['a2a-version'] === 'string' ? req.headers['a2a-version'] : '' }));
+      const text = Buffer.concat(chunks).toString('utf8');
+      const call = new ServerCallContext({ requestedVersion: typeof req.headers['a2a-version'] === 'string' ? req.headers['a2a-version'] : '' });
+      const result = req.url === '/' ? await gatewayTaskTransport(bridge.handler)(text, call)
+        : await new JsonRpcTransportHandler(bridge.handler).handle(text, call);
       if (Symbol.asyncIterator in result) return json(400, { error: 'Streaming unsupported' });
       if (!res.destroyed) json(200, result);
     } catch { if (!res.destroyed) json(500, { error: 'Request failed' }); }

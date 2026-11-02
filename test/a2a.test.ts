@@ -59,6 +59,10 @@ test('official SDK discovery/send/list/get, deduplication and restart lookup', {
     const restored = await running.client.getTask(GetTaskRequest.fromJSON({ id: taskId }));
     assert.equal(restored.status?.state, TaskState.TASK_STATE_COMPLETED);
     assert.match(JSON.stringify(restored), /Persistent hello/);
+    // Regression: deployed LiteLLM forwards v0.3 task methods to registry base.
+    const compatibility = await fetch('http://127.0.0.1:19876/', { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tasks/get', params: { id: taskId } }) });
+    const compatResult = await compatibility.json();
+    assert.equal(compatResult.result.id, taskId);
     await assert.rejects(running.client.cancelTask(CancelTaskRequest.fromJSON({ id: taskId })));
     faux.setResponses([async () => { await new Promise(resolve => setTimeout(resolve, 300)); return fauxAssistantMessage('Late answer'); }]);
     const started = await running.client.sendMessage(SendMessageRequest.fromJSON({ message: { messageId: 'cancel-me', role: 'ROLE_USER', parts: [{ text: 'Slow work' }] }, configuration: { returnImmediately: true } }));
