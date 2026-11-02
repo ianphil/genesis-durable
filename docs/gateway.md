@@ -93,9 +93,14 @@ card must both advertise routed URL, not a private Docker hostname.
 
 Automated tests: mocked ownership/grant failure/uncertain-create/outage/withdrawal,
 HTTP ingress target/path/auth routing, native listener and gateway compatibility.
-Not yet verified through real gateway: start/nonblocking behavior, explicit cancel,
-caller disconnect, stop/start withdrawal/restoration on routed setup, independent
-caller on another machine. Gateway itself is remote, but SDK caller was lilarchy.
+Final acceptance run also passed through the real gateway: pi extension nonblocking
+start returned a task; explicit cancel settled canceled; a blocking SDK caller
+aborted its wait while accepted work completed and its result remained retrievable.
+Routed API stop withdrew registration, start republished the stable name (new registry
+UUID), and old completed/canceled task IDs and shared context remained retrievable.
+Paginated gateway list returned a page token. Independent oma14 fleet session reported
+actual extension discovery/send success and correct Juniper identity/project code.
+This remote result is agent-reported tool evidence, not a local rerun of its tools.
 No comprehensive spec 1.0.1 or production-hardening claim.
 
 Cleanup: test registration and fleet grant were withdrawn via API stop and their
