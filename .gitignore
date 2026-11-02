@@ -8,3 +8,4 @@ coverage/
 *.sqlite
 *.sqlite-*
 /data/
+__pycache__/
