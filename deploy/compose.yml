@@ -1,0 +1,56 @@
+name: genesis-durable
+services:
+  provisioner:
+    image: ghcr.io/ianphil/genesis-durable:latest
+    container_name: genesis-provisioner
+    command: [node, dist/src/provisioner-main.js]
+    user: "${GENESIS_UID:?set runtime UID}:${GENESIS_GID:?set runtime GID}"
+    group_add:
+      - "${GENESIS_DOCKER_GID:?set Docker socket GID inside Linux engine}"
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    ports:
+      - "127.0.0.1:8081:8081"
+      - "127.0.0.1:19900:8082"
+    volumes:
+      - type: bind
+        source: /var/run/docker.sock
+        target: /var/run/docker.sock
+      - type: bind
+        source: ${GENESIS_DATA_ROOT:?set absolute data root}
+        target: ${GENESIS_DATA_ROOT}
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${GENESIS_SECRET_DIR:?set absolute secret directory}
+        target: ${GENESIS_SECRET_DIR}
+        read_only: true
+        bind:
+          create_host_path: false
+    environment:
+      GENESIS_DATA_ROOT: ${GENESIS_DATA_ROOT}
+      GENESIS_AGENT_IMAGE: ${GENESIS_AGENT_IMAGE:?pin an agent image digest}
+      GENESIS_NAMESPACE: ${GENESIS_NAMESPACE:-mac-mini}
+      GENESIS_MODEL_URL: ${GENESIS_MODEL_URL:?set model URL}
+      GENESIS_MODEL_KEY_FILE: ${GENESIS_SECRET_DIR}/model
+      GENESIS_ADMIN_KEY_FILE: ${GENESIS_SECRET_DIR}/admin
+      GENESIS_GATEWAY_URL: ${GENESIS_GATEWAY_URL:?set gateway URL}
+      GENESIS_GATEWAY_ADMIN_KEY_FILE: ${GENESIS_SECRET_DIR}/gateway-admin
+      GENESIS_GATEWAY_TEAM_ID: ${GENESIS_GATEWAY_TEAM_ID:?set fleet team ID}
+      GENESIS_GATEWAY_GRANT_LOCK: ${GENESIS_DATA_ROOT}/fleet-grant-lock
+      GENESIS_INGRESS_URL: ${GENESIS_INGRESS_URL:?set private ingress URL}
+      GENESIS_DOCKER_NETWORK: genesis-agents
+      GENESIS_HEALTH_PORT: '8081'
+    networks: [agents]
+    logging:
+      driver: local
+      options:
+        max-size: 10m
+        max-file: '3'
+networks:
+  agents:
+    name: genesis-agents

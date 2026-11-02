@@ -9,7 +9,7 @@ read-only mind access and health endpoints is implemented. Controlled no-Git
 [Genesis bootstrap](docs/bootstrap.md) is available as a provisioner function.
 An authenticated [direct A2A listener](docs/a2a.md) supports persistent tasks.
 A Docker-hosted [provisioning API](docs/provisioner.md) creates and manages local
-agent containers. Gateway registration is not implemented. See [runtime setup and evidence](docs/runtime.md).
+agent containers with fleet gateway registration. See [runtime setup and evidence](docs/runtime.md).
 
 ## Design
 
@@ -91,6 +91,7 @@ image, prepare private data/secrets, run the Docker-hosted provisioner and confi
 one host Tailscale Serve ingress. Agents share a private Docker network; they do not
 receive the Docker socket or gateway admin credentials.
 
+- [Demigod deployment and image publishing](docs/demigod-deployment.md)
 - [Administrative API and lifecycle](docs/provisioner.md)
 - [A2A listener](docs/a2a.md) and [fleet gateway routing](docs/gateway.md)
 - [Backup/restore, diagnostics and security boundaries](docs/operations.md)
@@ -103,4 +104,4 @@ addon's supported range), and build the native SQLite addon with
 
 This is a private single-host development deployment, not production hardening.
 HTTP-over-Tailscale is not production TLS. Authorized callers share agent history.
-Issue #9 tracks generated memory instructions that misdescribe Durable continuity.
+See [memory policy](docs/memory-policy.md) for Markdown, transcript and active-context continuity boundaries.
