@@ -84,10 +84,23 @@ selected artifacts and API/bootstrap/task policies. The narrowed #2 runtime and
 current default model (Haiku 5.5) are documented in [runtime setup and evidence](docs/runtime.md).
 Docker access is now operational; historical prerequisite findings are not current blockers.
 
-## Next validation
+## Deploy and operate
 
-1. Verify local container prerequisites and gateway-to-container reachability.
-2. Prove a minimal pinned Durable runtime with a synthetic mind and SQLite.
-3. Verify instruction/memory loading and controlled bootstrap without Git.
-4. Bridge SDK A2A tasks to Durable submissions with persistent identifiers.
-5. Test restart recovery, result lookup, cancellation, permissions and safe logs.
+Start with the [single-host deployment guide](docs/deployment.md): build the pinned
+image, prepare private data/secrets, run the Docker-hosted provisioner and configure
+one host Tailscale Serve ingress. Agents share a private Docker network; they do not
+receive the Docker socket or gateway admin credentials.
+
+- [Administrative API and lifecycle](docs/provisioner.md)
+- [A2A listener](docs/a2a.md) and [fleet gateway routing](docs/gateway.md)
+- [Backup/restore, diagnostics and security boundaries](docs/operations.md)
+- [MVP acceptance evidence and remaining risks](docs/acceptance.md)
+
+Development checks: `npm ci --ignore-scripts`, `npm run typecheck`, `npm test`.
+Use a supported Node version (22.19+; Node 25.9 tested, Node 26 outside the SQLite
+addon's supported range), and build the native SQLite addon with
+`npm rebuild better-sqlite3` after installation. Docker build handles this itself.
+
+This is a private single-host development deployment, not production hardening.
+HTTP-over-Tailscale is not production TLS. Authorized callers share agent history.
+Issue #9 tracks generated memory instructions that misdescribe Durable continuity.
