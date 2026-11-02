@@ -52,9 +52,11 @@ into demigod merely to interpolate Compose: `.env` contains paths, not key value
 The provisioner has gateway administration; agent containers receive only their
 model/listener credentials. Provisioner replacement alone leaves agents running.
 
-## Explicit post-publish notifications (replacement in progress)
+## Explicit post-publish notifications
 
 Native package event acceptance failed; see [investigation](webhook-investigation.md).
+Both explicit notification paths passed live service deployment checks; see
+[signed deployment evidence](signed-deployment-evidence.md).
 The workflow now sends an HMAC-signed POST to `/deploy` after a successful main
 image push, using the published Buildx digest. Provision the dedicated
 `DEMIGOD_DEPLOY_SECRET` in Actions and the listener through private stdin/file
