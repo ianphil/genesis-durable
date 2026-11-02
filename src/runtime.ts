@@ -2,7 +2,7 @@ import { readFile, realpath, stat } from 'node:fs/promises';
 import { resolve, relative, isAbsolute } from 'node:path';
 import { BACKGROUND_CONTEXT } from '@earendil-works/chord/context';
 import type { Models } from '@earendil-works/pi-ai/models';
-import { Harness, createRegistry, defineExtension, section } from '@earendil-works/pi-durable';
+import { Harness, createRegistry, defineExtension, section, type CompactionSettings } from '@earendil-works/pi-durable';
 import { openNodeSqliteStorage } from '@earendil-works/pi-durable/storage/sqlite/node';
 import { NodeExecutionEnv } from '@earendil-works/pi-durable/env/node';
 import { createReadTool, type ReadToolInput } from '@earendil-works/pi-durable/tools';
@@ -12,6 +12,7 @@ export const memoryFiles = ['.working-memory/memory.md', '.working-memory/rules.
 export type RuntimeOptions = {
   workspace: string; database: string; models: Models;
   model: { provider: string; modelId: string };
+  compaction?: CompactionSettings;
   log?: (event: string, fields?: Record<string, string>) => void;
 };
 
@@ -51,7 +52,7 @@ export async function openRuntime(options: RuntimeOptions) {
     env: () => new NodeExecutionEnv({ cwd: workspace }),
     settings: { restartLimit: 3, stream: { timeoutMs: 120000, maxRetries: 0 },
       retry: { maxRetries: 2, maxAgentDelayMs: 10000 },
-      compaction: { enabled: true, reserveTokens: 8192, keepRecentTokens: 16384, backgroundTokens: 8192 } },
+      compaction: { enabled: true, reserveTokens: 8192, keepRecentTokens: 16384, backgroundTokens: 8192, ...options.compaction } },
     onReport: (_error, info) => options.log?.('durable_report', { category: info.type }),
   }, context);
   try {

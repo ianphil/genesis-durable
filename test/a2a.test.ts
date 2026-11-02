@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, rm, cp } from 'node:fs/promises';
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -55,6 +55,12 @@ test('official SDK discovery/send/list/get, deduplication and restart lookup', {
     assert.equal(secondPage.tasks.length, 1);
     assert.notEqual(firstPage.tasks[0].id, secondPage.tasks[0].id);
     await running.http.close(); running = undefined;
+    // Cold restore includes workspace and both closed SQLite stores, not a
+    // live copy of only the main database that could omit WAL commits.
+    await cp(dir, dir + '-backup', { recursive: true });
+    await rm(dir, { recursive: true });
+    await cp(dir + '-backup', dir, { recursive: true });
+    await rm(dir + '-backup', { recursive: true });
     running = await start();
     const restored = await running.client.getTask(GetTaskRequest.fromJSON({ id: taskId }));
     assert.equal(restored.status?.state, TaskState.TASK_STATE_COMPLETED);
@@ -91,5 +97,18 @@ test('official SDK discovery/send/list/get, deduplication and restart lookup', {
     const lookup = await running.client.sendMessage(SendMessageRequest.fromJSON({ message: disconnectMessage }));
     assert.ok('id' in lookup && lookup.status?.state === TaskState.TASK_STATE_COMPLETED);
     assert.match(JSON.stringify(lookup), /Survived disconnect/);
+    const originalError = console.error, originalWarn = console.warn;
+    const diagnostics: string[] = [];
+    console.error = (...args) => { diagnostics.push(args.map(String).join(' ')); };
+    console.warn = (...args) => { diagnostics.push(args.map(String).join(' ')); };
+    try {
+      faux.setResponses([fauxAssistantMessage('', { stopReason: 'error', errorMessage: 'SENTINEL_PROVIDER_PRIVATE' }), fauxAssistantMessage('', { stopReason: 'error', errorMessage: 'SENTINEL_PROVIDER_PRIVATE' }), fauxAssistantMessage('', { stopReason: 'error', errorMessage: 'SENTINEL_PROVIDER_PRIVATE' })]);
+      const failed = await running.client.sendMessage(SendMessageRequest.fromJSON({ message: { messageId: 'provider-failure', role: 'ROLE_USER', parts: [{ text: 'SENTINEL_PROMPT_PRIVATE' }] } }));
+      // Input history is authorized A2A content, not an operational error/log.
+      assert.ok('id' in failed && failed.status?.state === TaskState.TASK_STATE_FAILED);
+      if ('id' in failed) assert.ok(!JSON.stringify(failed.status).includes('SENTINEL_PROVIDER_PRIVATE'));
+      assert.ok(!diagnostics.join('\n').includes('SENTINEL_PROVIDER_PRIVATE'));
+      assert.ok(!diagnostics.join('\n').includes('SENTINEL_PROMPT_PRIVATE'));
+    } finally { console.error = originalError; console.warn = originalWarn; }
   } finally { await running?.http.close(); await rm(dir, { recursive: true, force: true }); }
 });
