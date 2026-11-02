@@ -1,4 +1,4 @@
-# Operations and recovery (#7 — in progress)
+# Operations and recovery (#7)
 
 ## Content-free troubleshooting
 
@@ -62,8 +62,12 @@ tracks instructions distinguishing canonical memory from persistent transcript.
 Only read tool enabled with realpath containment; regression covers external
 symlink denial. Read-only mind mounts are required to prevent path-swap races.
 Agent resource/mount/non-root configuration was inspected in live #5/#6; no engine
-socket/admin keys. Operator/launcher must enforce single owner; there is no
-cross-process lock. Do not run competing provisioners or databases.
+socket/admin keys. Container entrypoint enforces a kernel flock on state/.runtime.lock or
+<data-root>/.provisioner.lock. A competing launcher exits 73; SIGKILL releases
+the lock. --no-fork preserves signals to Node. All launchers/migration helpers
+must use the entrypoint. Direct library callers and overridden entrypoints still
+require explicit coordination; advisory locks do not constrain noncooperating code.
+Use local storage with working flock semantics, not an unverified network mount.
 
 Docker local log rotation is configured at 10 MiB x3 in spawned containers. A
 test-owned container using the same driver with smaller 1 MiB x2 bounds emitted
@@ -80,5 +84,15 @@ sentinel error content nor prompt. This is interface-level failure injection, no
 physical SQLITE_FULL. A health listener bound to the failed harness lifetime returns liveness 200 and
 readiness 503; authenticated discovery/protocol requests also refuse readiness.
 This is an isolated HTTP lifetime test, not a live container failure injection.
-Actual SQLITE_FULL and concurrent-owner rejection remain unverified. Do not close
-#7 on this partial evidence alone.
+A SQLite max_page_count test forces actual SQLITE_FULL and verifies the failed
+write does not overwrite existing rows. This is separate from the Durable Storage
+failure test: no claim that a real container filesystem was filled. Host and built-image
+entrypoint tests reject a competing owner with exit 73, then reacquire after SIGKILL.
+Test containers removed. Image built successfully with the new entrypoint.
+
+Verification boundaries: scripted compaction proves machinery, not summary quality;
+health test uses an in-process failed harness, not a killed disk device; sentinel
+coverage is controlled failure paths, not a proof against every upstream log path.
+Backup/restore is cold and operator-coordinated. Runtime still needs private network
+policy/TLS and explicit deployment resource/log settings. These limits remain visible
+for #8 acceptance rather than claiming production hardening.

@@ -1,4 +1,6 @@
 import { test } from 'node:test';
+import Database from 'better-sqlite3';
+import { execFileSync, spawn } from 'node:child_process';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, readFile, cp, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -108,6 +110,30 @@ test('mid-run storage commit failure closes harness and reports only safe catego
       assert.equal((await fetch(`http://127.0.0.1:${port}/health/ready`)).status, 503);
     } finally { http.server.closeAllConnections(); await new Promise<void>(resolve => http.server.close(() => resolve())); }
   } finally { await runtime.close(); await rm(dir, { recursive: true, force: true }); }
+});
+
+test('SQLite page exhaustion produces SQLITE_FULL without overwriting existing rows', () => {
+  const db = new Database(':memory:');
+  try {
+    db.exec('PRAGMA page_size=512; CREATE TABLE fixture (value BLOB); INSERT INTO fixture VALUES (zeroblob(100))');
+    const pages = db.pragma('page_count', { simple: true });
+    db.pragma(`max_page_count=${pages}`);
+    assert.throws(() => db.prepare('INSERT INTO fixture VALUES (?)').run(Buffer.alloc(65536)), (error: unknown) => (error as { code?: string }).code === 'SQLITE_FULL');
+    assert.equal((db.prepare('SELECT count(*) AS n FROM fixture').get() as { n: number }).n, 1);
+  } finally { db.close(); }
+});
+
+test('container entrypoint rejects competing owner and releases kernel lock on kill', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'gd-lock-'));
+  const env = { ...process.env, GENESIS_DATABASE: join(dir, 'durable.sqlite') };
+  const child = spawn('sh', ['container-entrypoint.sh', 'sleep', '30'], { env });
+  try {
+    await new Promise(resolve => setTimeout(resolve, 100));
+    assert.throws(() => execFileSync('sh', ['container-entrypoint.sh', 'true'], { env }), (error: unknown) => (error as { status: number }).status === 73);
+    const exited = new Promise(resolve => child.once('exit', resolve));
+    child.kill('SIGKILL'); await exited;
+    execFileSync('sh', ['container-entrypoint.sh', 'true'], { env });
+  } finally { child.kill('SIGKILL'); await rm(dir, { recursive: true, force: true }); }
 });
 
 test('storage open failure rejects; outside symlink cannot be read', async () => {
