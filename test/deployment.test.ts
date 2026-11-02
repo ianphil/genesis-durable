@@ -7,7 +7,7 @@ test('Compose keeps privileged provisioning separate and host mount paths stable
   if (available.status !== 0) return t.skip('Docker Compose not installed');
   const env = { ...process.env, GENESIS_UID: '502', GENESIS_GID: '20', GENESIS_DOCKER_GID: '0',
     GENESIS_DATA_ROOT: '/tmp/genesis-data', GENESIS_SECRET_DIR: '/tmp/genesis-secrets',
-    GENESIS_AGENT_IMAGE: `ghcr.io/ianphil/genesis-durable@sha256:${'a'.repeat(64)}`,
+    GENESIS_AGENT_IMAGE: `sha256:${'a'.repeat(64)}`,
     GENESIS_MODEL_URL: 'http://gateway:4000', GENESIS_GATEWAY_URL: 'http://gateway:4000',
     GENESIS_GATEWAY_TEAM_ID: 'test', GENESIS_INGRESS_URL: 'http://100.64.0.1:19901' };
   const result = spawnSync('docker', ['compose', '-f', 'deploy/compose.yml', 'config', '--format', 'json'], { env, encoding: 'utf8' });

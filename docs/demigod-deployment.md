@@ -16,8 +16,10 @@ Automatic provisioner updates still require schema/runtime compatibility review;
 this is not unattended database migration or agent runtime upgrading.
 
 `deploy/compose.yml` updates only the provisioner. `GENESIS_AGENT_IMAGE` is a
-separately pinned digest for new agents; existing records keep their own image.
-Pre-pull that digest before creating agents. No general agent upgrade API exists.
+separately pinned **bare local image ID** (`sha256:<64 hex>`) for new agents;
+existing records keep their own image. Pull a published immutable registry digest,
+then obtain the local ID with `docker image inspect --format '{{.Id}}' <reference>`.
+A registry reference (`ghcr.io/...@sha256:...`) is not accepted by the provisioner. No general agent upgrade API exists.
 
 ## Private Mac deployment
 
