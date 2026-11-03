@@ -6,15 +6,18 @@ import { join, resolve, isAbsolute } from 'node:path';
 import { bootstrap, type Character } from './bootstrap.js';
 import { runtimeModels, defaultModel } from './model.js';
 import { gateway, type GatewayConfig, type Registration } from './gateway.js';
+import { capabilities, capabilityTools, type Capability } from './capabilities.js';
 
-type Agent = { id: string; request: string; hash: string; name: string; character: string; purpose: string; state: string; stage: string; desired: string; failure: string | null; image: string; revision: string | null; created: string; updated: string };
+type Agent = { capabilities: string; activeCapabilities: string; targetImage: string | null; updating: number; id: string; request: string; hash: string; name: string; character: string; purpose: string; state: string; stage: string; desired: string; failure: string | null; image: string; revision: string | null; created: string; updated: string };
 export type ProvisionerConfig = { root: string; image: string; modelUrl: string; modelKeyFile: string; templateKeyFile?: string; namespace: string; gateway?: GatewayConfig & { ingressUrl: string; network: string }; log?: (event: string, fields: Record<string, string>) => void };
 export class ApiError extends Error { constructor(public status: number, public code: string) { super(code); } }
-export function validateCreate(value: unknown): Character & { requestId: string; model: string } {
+export function validateCreate(value: unknown): Character & { requestId: string; model: string; capabilities: Capability[] } {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new ApiError(400, 'invalid_input');
   const v = value as Record<string, unknown>;
-  if (Object.keys(v).some(k => !['requestId', 'name', 'character', 'purpose', 'model'].includes(k)) || typeof v.requestId !== 'string' || !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(v.requestId) || typeof v.name !== 'string' || !/^[a-z][a-z0-9-]{0,47}$/.test(v.name) || [v.character, v.purpose].some(x => typeof x !== 'string' || !x.trim() || Buffer.byteLength(x) > 8192) || (v.model !== undefined && v.model !== defaultModel.modelId)) throw new ApiError(400, 'invalid_input');
-  return { requestId: v.requestId, name: v.name, character: v.character as string, purpose: v.purpose as string, model: defaultModel.modelId };
+  if (Object.keys(v).some(k => !['requestId', 'name', 'character', 'purpose', 'model', 'capabilities'].includes(k)) || typeof v.requestId !== 'string' || !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(v.requestId) || typeof v.name !== 'string' || !/^[a-z][a-z0-9-]{0,47}$/.test(v.name) || [v.character, v.purpose].some(x => typeof x !== 'string' || !x.trim() || Buffer.byteLength(x) > 8192) || (v.model !== undefined && v.model !== defaultModel.modelId)) throw new ApiError(400, 'invalid_input');
+  let selection: Capability[];
+  try { selection = capabilities(v.capabilities); } catch { throw new ApiError(400, 'invalid_capabilities'); }
+  return { capabilities: selection, requestId: v.requestId, name: v.name, character: v.character as string, purpose: v.purpose as string, model: defaultModel.modelId };
 }
 
 export async function openProvisioner(config: ProvisionerConfig, docker = new Docker({ socketPath: '/var/run/docker.sock' })) {
@@ -27,6 +30,10 @@ export async function openProvisioner(config: ProvisionerConfig, docker = new Do
   const db = new Database(join(config.root, 'provisioning.sqlite'));
   db.pragma('journal_mode = WAL');
   db.exec('CREATE TABLE IF NOT EXISTS agents (id TEXT PRIMARY KEY, request TEXT UNIQUE, hash TEXT, name TEXT UNIQUE, character TEXT, purpose TEXT, state TEXT, stage TEXT, desired TEXT, failure TEXT, image TEXT, revision TEXT, created TEXT, updated TEXT)');
+  const columns = (db.prepare('PRAGMA table_info(agents)').all() as { name: string }[]).map(c => c.name);
+  for (const [column, definition] of Object.entries({ capabilities: `TEXT NOT NULL DEFAULT '["read"]'`, activeCapabilities: `TEXT NOT NULL DEFAULT '["read"]'`, targetImage: 'TEXT', updating: 'INTEGER NOT NULL DEFAULT 0' })) {
+    if (!columns.includes(column)) db.exec(`ALTER TABLE agents ADD COLUMN ${column} ${definition}`);
+  }
   db.exec('CREATE TABLE IF NOT EXISTS gateway_registrations (agent TEXT PRIMARY KEY, registration TEXT NOT NULL)');
   const publication = config.gateway ? gateway(config.gateway) : undefined;
   if (config.gateway && (!/^[a-zA-Z0-9_-]+$/.test(config.gateway.network) || !['http:', 'https:'].includes(new URL(config.gateway.ingressUrl).protocol))) throw new Error('gateway_network_configuration');
@@ -40,7 +47,7 @@ export async function openProvisioner(config: ProvisionerConfig, docker = new Do
     db.prepare('UPDATE agents SET state=?, stage=?, failure=?, updated=? WHERE id=?').run(state, stage, failure, new Date().toISOString(), id);
     config.log?.('provisioning_transition', { agentId: id, operationId: id, state, stage, ...(failure ? { category: failure } : {}) });
   };
-  const summary = (row: Agent) => ({ id: row.id, name: row.name, model: defaultModel.modelId, state: row.state, stage: row.stage, desiredState: row.desired, operationId: row.id, failure: row.failure ? { code: row.failure, correlationId: row.id } : null, provenance: { imageDigest: row.image, templateRevision: row.revision }, createdAt: row.created, updatedAt: row.updated });
+  const summary = (row: Agent) => ({ id: row.id, name: row.name, model: defaultModel.modelId, capabilities: JSON.parse(row.capabilities), activeCapabilities: JSON.parse(row.activeCapabilities), tools: capabilityTools(JSON.parse(row.activeCapabilities)), state: row.state, stage: row.stage, desiredState: row.desired, operationId: row.id, failure: row.failure ? { code: row.failure, correlationId: row.id } : null, provenance: { imageDigest: row.image, templateRevision: row.revision }, createdAt: row.created, updatedAt: row.updated });
   const name = (id: string) => `gd-${config.namespace}-${id}`;
   const owned = async (id: string) => {
     const container = docker.getContainer(name(id));
@@ -56,7 +63,26 @@ export async function openProvisioner(config: ProvisionerConfig, docker = new Do
       const row = get(id)!;
       try {
         let current = await owned(id);
-        if (row.desired === 'stopped') {
+        if (row.updating) {
+          update(id, 'creating', 'draining');
+          if (current?.info.State.Running) {
+            const token = (await readFile(join(config.root, 'agents', id, 'listener-key'), 'utf8')).trim();
+            // No cancellation: a drain failure leaves an inspectable retryable update.
+            const result = await fetch(`http://${name(id)}:8080/admin/drain`, { method: 'POST', headers: { authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(120000) });
+            if (!result.ok) throw new Error('drain_failed');
+          }
+          if (publication && registration(id)) {
+            await publication.withdraw(await gatewayAgent(row), registration(id));
+            db.prepare('DELETE FROM gateway_registrations WHERE agent=?').run(id);
+          }
+          if (current) {
+            if (current.info.State.Running) await current.container.stop({ t: 10 });
+            await current.container.remove(); current = undefined;
+          }
+          row.image = row.targetImage ?? row.image;
+          db.prepare('UPDATE agents SET image=? WHERE id=?').run(row.image, id);
+        }
+        if (row.desired === 'stopped' && !row.updating) {
           if (publication && (current || registration(id))) {
             update(id, 'creating', 'withdrawing');
             await publication.withdraw(await gatewayAgent(row), registration(id));
@@ -66,6 +92,10 @@ export async function openProvisioner(config: ProvisionerConfig, docker = new Do
           update(id, 'stopped', 'stopped'); return;
         }
         if (!current) {
+          if (row.capabilities !== '["read"]') {
+            const image = await docker.getImage(row.image).inspect();
+            if (image.Config.Labels?.['io.genesis.capabilities'] !== '1') throw new Error('image_capabilities_unsupported');
+          }
           update(id, 'creating', 'bootstrap');
           const agentDirectory = join(config.root, 'agents', id);
           const models = await runtimeModels(config.modelUrl, config.modelKeyFile);
@@ -80,12 +110,12 @@ export async function openProvisioner(config: ProvisionerConfig, docker = new Do
           // Paths are Docker HOST paths. Provisioner must mount data/key paths at
           // their identical absolute locations; callers never supply paths.
           const mounts = [
-            { Type: 'bind' as const, Source: mind.workspace, Target: '/workspace', ReadOnly: true },
+            { Type: 'bind' as const, Source: mind.workspace, Target: '/workspace', ReadOnly: !capabilityTools(JSON.parse(row.capabilities)).includes('write') },
             { Type: 'bind' as const, Source: state, Target: '/state' },
             { Type: 'bind' as const, Source: config.modelKeyFile, Target: '/run/secrets/model', ReadOnly: true },
             { Type: 'bind' as const, Source: listenerKey, Target: '/run/secrets/listener', ReadOnly: true },
           ];
-          const base = { Image: row.image, User: `${process.getuid?.() ?? 1000}:${process.getgid?.() ?? 1000}`, Labels: { 'genesis.namespace': config.namespace, 'genesis.agent': id }, HostConfig: { Mounts: mounts, ...(config.gateway ? { NetworkMode: config.gateway.network } : {}), ReadonlyRootfs: true, CapDrop: ['ALL'], SecurityOpt: ['no-new-privileges'], Memory: 1073741824, NanoCpus: 1000000000, PidsLimit: 128, Tmpfs: { '/tmp': 'rw,noexec,nosuid,size=64m' }, LogConfig: { Type: 'local', Config: { 'max-size': '10m', 'max-file': '3' } } } };
+          const base = { Image: row.image, User: `${process.getuid?.() ?? 1000}:${process.getgid?.() ?? 1000}`, Labels: { 'genesis.namespace': config.namespace, 'genesis.agent': id, 'genesis.capabilities': row.capabilities }, HostConfig: { Mounts: mounts, ...(config.gateway ? { NetworkMode: config.gateway.network } : {}), ReadonlyRootfs: true, CapDrop: ['ALL'], SecurityOpt: ['no-new-privileges'], Memory: 1073741824, NanoCpus: 1000000000, PidsLimit: 128, Tmpfs: { '/tmp': 'rw,noexec,nosuid,size=64m' }, LogConfig: { Type: 'local', Config: { 'max-size': '10m', 'max-file': '3' } } } };
           update(id, 'creating', 'storage');
           const migrationName = `${name(id)}-migration`;
           let migration = docker.getContainer(migrationName);
@@ -100,8 +130,12 @@ export async function openProvisioner(config: ProvisionerConfig, docker = new Do
           const receipt = await migration.wait();
           if (receipt.StatusCode !== 0) throw new Error('migration_failed');
           await migration.remove();
-          const container = await docker.createContainer({ ...base, name: name(id), Env: [`GENESIS_MODEL_URL=${config.modelUrl}`, 'GENESIS_MODEL_KEY_FILE=/run/secrets/model', 'GENESIS_LISTENER_KEY_FILE=/run/secrets/listener', `GENESIS_NAME=${row.name}`, `GENESIS_AGENT_ID=${id}`, `GENESIS_A2A_URL=${listener(id)}/a2a`] });
+          const container = await docker.createContainer({ ...base, name: name(id), Env: [`GENESIS_CAPABILITIES=${row.capabilities}`, `GENESIS_MODEL_URL=${config.modelUrl}`, 'GENESIS_MODEL_KEY_FILE=/run/secrets/model', 'GENESIS_LISTENER_KEY_FILE=/run/secrets/listener', `GENESIS_NAME=${row.name}`, `GENESIS_AGENT_ID=${id}`, `GENESIS_A2A_URL=${listener(id)}/a2a`] });
           current = { container, info: await container.inspect() };
+        }
+        if (row.desired === 'stopped') {
+          db.prepare('UPDATE agents SET activeCapabilities=?, updating=0, targetImage=NULL WHERE id=?').run(row.capabilities, id);
+          update(id, 'stopped', 'stopped'); return;
         }
         update(id, 'creating', 'runtime');
         if (!current.info.State.Running) await current.container.start();
@@ -115,13 +149,14 @@ export async function openProvisioner(config: ProvisionerConfig, docker = new Do
                 db.prepare('INSERT OR REPLACE INTO gateway_registrations VALUES(?,?)').run(id, JSON.stringify(value));
               });
             }
+            db.prepare('UPDATE agents SET activeCapabilities=?, updating=0, targetImage=NULL WHERE id=?').run(row.capabilities, id);
             update(id, 'ready', publication ? 'published' : 'runtime'); return;
           }
           await new Promise(resolve => setTimeout(resolve, 1000));
         }
         throw new Error('readiness_timeout');
       } catch (error) {
-        const category = error instanceof Error && ['container_not_owned', 'migration_not_owned', 'migration_failed', 'runtime_not_ready', 'readiness_timeout', 'bootstrap_incomplete_or_busy'].includes(error.message) ? error.message : 'provisioning_failed';
+        const category = error instanceof Error && ['container_not_owned', 'migration_not_owned', 'migration_failed', 'runtime_not_ready', 'readiness_timeout', 'bootstrap_incomplete_or_busy', 'drain_failed', 'image_capabilities_unsupported'].includes(error.message) ? error.message : 'provisioning_failed';
         update(id, 'failed', 'failed', category);
       }
     })().finally(() => active.delete(id));
@@ -132,18 +167,41 @@ export async function openProvisioner(config: ProvisionerConfig, docker = new Do
     create(value: unknown) {
       if (closing) throw new ApiError(503, 'stopping');
       const input = validateCreate(value);
-      const hash = createHash('sha256').update(JSON.stringify([input.name, input.character, input.purpose, input.model])).digest('hex');
+      const hash = createHash('sha256').update(JSON.stringify([input.name, input.character, input.purpose, input.model, input.capabilities])).digest('hex');
       const previous = db.prepare('SELECT * FROM agents WHERE request=?').get(input.requestId) as Agent | undefined;
-      if (previous) { if (previous.hash !== hash) throw new ApiError(409, 'request_conflict'); return { existing: true, agent: summary(previous) }; }
+      if (previous) { if (previous.hash !== hash && !(input.capabilities.join() === 'read' && previous.hash === createHash('sha256').update(JSON.stringify([input.name, input.character, input.purpose, input.model])).digest('hex'))) throw new ApiError(409, 'request_conflict'); return { existing: true, agent: summary(previous) }; }
       if (db.prepare('SELECT id FROM agents WHERE name=?').get(input.name)) throw new ApiError(409, 'name_conflict');
       const id = randomUUID(), now = new Date().toISOString();
-      db.prepare('INSERT INTO agents VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)').run(id, input.requestId, hash, input.name, input.character, input.purpose, 'creating', 'accepted', 'ready', null, config.image, null, now, now);
+      db.prepare('INSERT INTO agents (id,request,hash,name,character,purpose,state,stage,desired,failure,image,revision,created,updated,capabilities,activeCapabilities) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)').run(id, input.requestId, hash, input.name, input.character, input.purpose, 'creating', 'accepted', 'ready', null, config.image, null, now, now, JSON.stringify(input.capabilities), '[]');
       reconcile(id); return { existing: false, agent: summary(get(id)!) };
+    },
+    async setCapabilities(id: string, value: unknown) {
+      if (closing) throw new ApiError(503, 'stopping');
+      const row = get(id); if (!row) throw new ApiError(404, 'not_found');
+      if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).some(k => k !== 'capabilities') || !('capabilities' in value)) throw new ApiError(400, 'invalid_input');
+      let selection: Capability[];
+      try { selection = capabilities((value as { capabilities: unknown }).capabilities); } catch { throw new ApiError(400, 'invalid_capabilities'); }
+      if (active.has(id)) {
+        if (row.updating && JSON.stringify(selection) === row.capabilities) return summary(row);
+        throw new ApiError(409, 'operation_busy');
+      }
+      if (!row.updating && JSON.stringify(selection) === row.capabilities) return summary(row);
+      if (row.state === 'creating') throw new ApiError(409, 'operation_busy');
+      const current = await owned(id);
+      if (current?.info.State.Running) {
+        const oldImage = await docker.getImage(row.image).inspect();
+        if (oldImage.Config.Labels?.['io.genesis.capabilities'] !== '1') throw new ApiError(409, 'legacy_agent_must_be_stopped');
+      }
+      const image = await docker.getImage(config.image).inspect();
+      if (image.Config.Labels?.['io.genesis.capabilities'] !== '1') throw new ApiError(409, 'image_capabilities_unsupported');
+      // Explicit update opts into the server-configured compatible runtime image.
+      db.prepare('UPDATE agents SET capabilities=?,targetImage=?,updating=1 WHERE id=?').run(JSON.stringify(selection), config.image, id);
+      update(id, 'creating', 'accepted'); reconcile(id); return summary(get(id)!);
     },
     list(limit = 50, cursor = '') { if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new ApiError(400, 'invalid_limit'); const rows = db.prepare('SELECT * FROM agents WHERE id > ? ORDER BY id LIMIT ?').all(cursor, limit + 1) as Agent[]; return { agents: rows.slice(0, limit).map(summary), nextCursor: rows.length > limit ? rows[limit - 1].id : null }; },
     route(id: string) {
       const row = get(id);
-      if (!row || row.desired !== 'ready') throw new ApiError(404, 'not_found');
+      if (!row || row.desired !== 'ready' || row.updating) throw new ApiError(404, 'not_found');
       return { host: name(id), port: 8080 };
     },
     inspect(id: string) { const row = get(id); if (!row) throw new ApiError(404, 'not_found'); return summary(row); },

@@ -93,6 +93,7 @@ receive the Docker socket or gateway admin credentials.
 
 - [Demigod deployment and image publishing](docs/demigod-deployment.md)
 - [Administrative API and lifecycle](docs/provisioner.md)
+- [Capability selection and update policy](docs/capabilities.md)
 - [A2A listener](docs/a2a.md) and [fleet gateway routing](docs/gateway.md)
 - [Backup/restore, diagnostics and security boundaries](docs/operations.md)
 - [MVP acceptance evidence and remaining risks](docs/acceptance.md)

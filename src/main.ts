@@ -4,6 +4,7 @@ import { openA2A } from './a2a.js';
 import { a2aHttp } from './a2a-http.js';
 import { runtimeModels, defaultModel } from './model.js';
 import { openRuntime } from './runtime.js';
+import { capabilities } from './capabilities.js';
 
 const log = (event: string, fields: Record<string, string> = {}) =>
   console.log(JSON.stringify({ timestamp: new Date().toISOString(), severity: 'info', event, ...fields }));
@@ -17,7 +18,7 @@ async function main() {
   const models = await runtimeModels(endpoint, keyFile);
   const agentId = process.env.GENESIS_AGENT_ID;
   const agentLog = (event: string, fields: Record<string, string> = {}) => log(event, { ...(agentId ? { agentId } : {}), ...fields });
-  const runtime = await openRuntime({ workspace, database, models, model: defaultModel, agentId, log: agentLog });
+  const runtime = await openRuntime({ workspace, database, models, model: defaultModel, capabilities: capabilities(process.env.GENESIS_CAPABILITIES ? JSON.parse(process.env.GENESIS_CAPABILITIES) : undefined), agentId, log: agentLog });
   const tokenFile = process.env.GENESIS_LISTENER_KEY_FILE;
   if (!tokenFile) { await runtime.close(); throw new Error('listener_configuration'); }
   const bridge = await openA2A({ runtime, database: join(dirname(database), 'a2a.sqlite'),

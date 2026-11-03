@@ -22,14 +22,17 @@ async function main() {
       if (expected.length !== supplied.length || !timingSafeEqual(expected, supplied)) throw new ApiError(401, 'unauthorized');
       const url = new URL(req.url ?? '/', 'http://localhost');
       if (req.method === 'GET' && url.pathname === '/v1/agents') return json(200, provisioner.list(Number(url.searchParams.get('limit') ?? 50), url.searchParams.get('cursor') ?? ''));
-      const route = /^\/v1\/agents\/([a-f0-9-]{36})(?:\/(start|stop))?$/.exec(url.pathname);
+      const route = /^\/v1\/agents\/([a-f0-9-]{36})(?:\/(start|stop|capabilities))?$/.exec(url.pathname);
       if (req.method === 'GET' && route && !route[2]) return json(200, provisioner.inspect(route[1]));
-      if (req.method !== 'POST' || (url.pathname !== '/v1/agents' && !route?.[2])) throw new ApiError(404, 'not_found');
+      const capabilityUpdate = req.method === 'PUT' && route?.[2] === 'capabilities';
+      if (!capabilityUpdate && (req.method !== 'POST' || (url.pathname !== '/v1/agents' && !route?.[2]))) throw new ApiError(404, 'not_found');
       if (!/^application\/json(?:;|$)/i.test(req.headers['content-type'] ?? '')) throw new ApiError(400, 'invalid_content_type');
       const chunks: Buffer[] = []; let size = 0;
       for await (const chunk of req) { size += chunk.length; if (size > 32768) throw new ApiError(413, 'body_limit'); chunks.push(Buffer.from(chunk)); }
       let body; try { body = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(Buffer.concat(chunks))); } catch { throw new ApiError(400, 'invalid_json'); }
+      if (capabilityUpdate) return json(202, await provisioner.setCapabilities(route![1], body));
       if (route?.[2]) {
+        if (route[2] === 'capabilities') throw new ApiError(405, 'method_not_allowed');
         if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).length) throw new ApiError(400, 'invalid_input');
         return json(202, provisioner.lifecycle(route[1], route[2] === 'start' ? 'ready' : 'stopped'));
       }

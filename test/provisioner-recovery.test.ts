@@ -20,7 +20,7 @@ test('restart adopts only labeled owned container, preserves stop intent, retrie
   let p = await openProvisioner(config, docker); await p.close();
   const db = new Database(join(root, 'provisioning.sqlite'));
   const now = new Date().toISOString();
-  db.prepare('INSERT INTO agents VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)').run(id, id, 'hash', 'fixture', 'private-character', 'private-purpose', 'creating', 'runtime', 'ready', null, config.image, 'a'.repeat(40), now, now);
+  db.prepare('INSERT INTO agents (id,request,hash,name,character,purpose,state,stage,desired,failure,image,revision,created,updated) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)').run(id, id, 'hash', 'fixture', 'private-character', 'private-purpose', 'creating', 'runtime', 'ready', null, config.image, 'a'.repeat(40), now, now);
   db.close();
   try {
     p = await openProvisioner(config, docker); await p.close();

@@ -15,6 +15,9 @@ export function a2aHttp(bridge: Awaited<ReturnType<typeof openA2A>>, token: stri
     if (req.method === 'GET' && req.url === '/health/ready') return json(ready ? 200 : 503, { status: ready ? 'ready' : 'unavailable' });
     const expected = Buffer.from(`Bearer ${token}`), supplied = Buffer.from(req.headers.authorization ?? '');
     if (expected.length !== supplied.length || !timingSafeEqual(expected, supplied)) { req.resume(); return json(401, { error: 'Unauthorized' }); }
+    if (req.method === 'POST' && req.url === '/admin/drain') {
+      ready = false; req.resume(); await bridge.drain(); return json(200, { status: 'drained' });
+    }
     if (!ready) { req.resume(); return json(503, { error: 'Unavailable' }); }
     if (req.method === 'GET' && req.url === '/.well-known/agent-card.json') return json(200, AgentCard.toJSON(bridge.card));
     if (req.method !== 'POST' || !['/a2a', '/'].includes(req.url ?? '')) { req.resume(); return json(404, { error: 'Not found' }); }

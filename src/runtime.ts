@@ -1,11 +1,12 @@
 import { readFile, realpath, stat } from 'node:fs/promises';
-import { resolve, relative, isAbsolute } from 'node:path';
+import { resolve, relative, isAbsolute, dirname } from 'node:path';
 import { BACKGROUND_CONTEXT } from '@earendil-works/chord/context';
 import type { Models } from '@earendil-works/pi-ai/models';
 import { Harness, createRegistry, defineExtension, section, type CompactionSettings, type Storage } from '@earendil-works/pi-durable';
 import { openNodeSqliteStorage } from '@earendil-works/pi-durable/storage/sqlite/node';
 import { NodeExecutionEnv } from '@earendil-works/pi-durable/env/node';
-import { createReadTool, type ReadToolInput } from '@earendil-works/pi-durable/tools';
+import { createReadTool, createWriteTool, createEditTool, createBashTool, type ReadToolInput } from '@earendil-works/pi-durable/tools';
+import { capabilities, capabilityTools, type Capability } from './capabilities.js';
 
 import { memoryPolicy } from './memory-policy.js';
 
@@ -14,6 +15,7 @@ export const memoryFiles = ['.working-memory/memory.md', '.working-memory/rules.
 export type RuntimeOptions = {
   workspace: string; database: string; models: Models;
   model: { provider: string; modelId: string };
+  capabilities?: Capability[];
   compaction?: CompactionSettings;
   storage?: Storage;
   agentId?: string;
@@ -41,18 +43,42 @@ export async function openRuntime(options: RuntimeOptions) {
   };
   const instructions = (await Promise.all(['SOUL.md', 'AGENT.md'].map(load))).join('\n\n');
   await Promise.all(memoryFiles.map(load));
+  const selection = capabilities(options.capabilities);
+  const enabled = capabilityTools(selection);
+  const writablePath = async (path: string): Promise<string> => {
+    const target = resolve(workspace, path);
+    const rel = relative(workspace, target);
+    if (!rel || rel === '..' || rel.startsWith('../') || isAbsolute(rel)) throw new Error('write_denied');
+    // Check existing ancestors as well as an existing final symlink.
+    try { return await checkedPath(target); } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw new Error('write_denied');
+      await writableParent(dirname(target));
+      return target;
+    }
+  };
+  const writableParent = async (path: string): Promise<void> => {
+    try { await checkedPath(path); } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw new Error('write_denied');
+      await writableParent(dirname(path));
+    }
+  };
   const read = createReadTool();
+  const write = createWriteTool();
+  const edit = createEditTool();
   const registry = createRegistry();
-  registry.install(defineExtension({
+  const extension = defineExtension({
     name: 'genesis.readonly.v1',
     sections: [section('genesis', () => instructions), section('host-memory-policy', () => memoryPolicy)],
-    tools: [{ ...read, execute: async (args, api, ctx) => {
+    tools: [...(enabled.includes('read') ? [{ ...read, execute: async (args: ReadToolInput, api: Parameters<typeof read.execute>[1], ctx: Parameters<typeof read.execute>[2]) => {
       const input = args as ReadToolInput;
       let path: string;
       try { path = await checkedPath(input.path); } catch { throw new Error('read_denied'); }
       return read.execute({ ...input, path }, api, ctx);
-    } }],
-  }));
+    } }] : []), ...(enabled.includes('write') ? [{ ...write, execute: async (args: Parameters<typeof write.execute>[0], api: Parameters<typeof write.execute>[1], ctx: Parameters<typeof write.execute>[2]) => write.execute({ ...args, path: await writablePath(args.path) }, api, ctx) },
+      { ...edit, execute: async (args: Parameters<typeof edit.execute>[0], api: Parameters<typeof edit.execute>[1], ctx: Parameters<typeof edit.execute>[2]) => edit.execute({ ...args, path: await writablePath(args.path) }, api, ctx) }] : []),
+      ...(enabled.includes('bash') ? [createBashTool()] : [])],
+  });
+  registry.install(extension);
   const harness = await Harness.open(options.storage ?? await openNodeSqliteStorage(options.database), {
     models: options.models, registry,
     env: () => new NodeExecutionEnv({ cwd: workspace }),
@@ -68,7 +94,7 @@ export async function openRuntime(options: RuntimeOptions) {
     } });
     // Reopen must refresh host policy too: root creation options do not update
     // existing pi.agent instructions. No canonical mind files are changed.
-    await root.configure({ instructions: `Read ${memoryFiles.join(', ')} before answering questions about your memory.\n\n${memoryPolicy}` }, context);
+    await root.configure({ tools: extension.tools ?? [], instructions: `Available tools: ${enabled.join(', ') || 'none'}. ${enabled.includes('write') ? 'You may curate Markdown memory in your workspace; preserve identity and distinguish facts from guesses.' : 'You cannot write curated memory.'} ${enabled.includes('bash') ? 'Shell commands run inside your container, not on the host. No infrastructure authority is implied.' : ''}\nRead ${memoryFiles.join(', ')} before answering questions about your memory.\n\n${memoryPolicy}` }, context);
     harness.resume();
     log('runtime_open', { conversationId: String(root.id), durationMs: String(Date.now() - openedAt), durableVersion: '1.4.0' });
     return { harness, root, close: async () => {
