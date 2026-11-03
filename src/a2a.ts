@@ -142,7 +142,12 @@ export async function openA2A(options: { runtime: Runtime; database: string; nam
     const snapshot = await store.load(row.task, callContext);
     if (!snapshot || !terminal.has(snapshot.status!.state)) void run(row, buses.createOrGetByTaskId(row.task, callContext));
   }
-  return { handler, card, contextId, async drain() { stopping = true; await Promise.all(active.values()); }, closed: options.runtime.harness.closed, async close() {
+  return { handler, card, contextId, async drain() {
+    stopping = true;
+    // Admission may be awaiting the SDK store before its execution joins active.
+    while (admitting) await new Promise(resolve => setTimeout(resolve, 10));
+    await Promise.all(active.values());
+  }, closed: options.runtime.harness.closed, async close() {
     stopping = true;
     await options.runtime.close();
     await Promise.all(active.values());
