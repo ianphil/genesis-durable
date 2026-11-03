@@ -1,4 +1,4 @@
-# Agent capabilities (issue #11 — implementation under verification)
+# Agent capabilities
 
 Creation accepts `capabilities`, an array of additive server-defined bundles:
 
@@ -57,5 +57,6 @@ Durable owns tool execution/recovery; file/process side effects are not exactly-
 transactions with SQLite. Use its exported tools, not copied implementations.
 Outbound fleet A2A is not enabled by these bundles.
 
-Live Jupiter upgrade and complete update-failure/container-recovery acceptance are
-not yet recorded. Do not treat this implementation document as deployment evidence.
+Live Jupiter upgrade, file/tool persistence and running downgrade/re-enable checks
+passed; see [capability acceptance](capability-acceptance.md). Full crash-boundary
+update recovery and a busy real-model drain remain unverified.
