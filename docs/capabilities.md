@@ -58,5 +58,6 @@ transactions with SQLite. Use its exported tools, not copied implementations.
 Outbound fleet A2A is not enabled by these bundles.
 
 Live Jupiter upgrade, file/tool persistence and running downgrade/re-enable checks
-passed; see [capability acceptance](capability-acceptance.md). Full crash-boundary
-update recovery and a busy real-model drain remain unverified.
+passed; see [capability acceptance](capability-acceptance.md). A busy real-model
+drain and provisioner kill/restart during drain also passed. Fault injection is not
+exhaustive across every container replacement boundary.

@@ -38,9 +38,17 @@ Publish run `41657019163` succeeded and the signed deployment updated provisione
 
 ## Evidence boundaries / remaining work
 
-A busy real-model drain, fault injection at every update crash boundary, and
-cross-restart update failure recovery are not verified. Local tests cover failure
-reporting but not every container replacement race. Coding bash is container-wide,
+Final live checks: requested a workspace downgrade while Jupiter executed a
+20-second bash command. The admitted A2A task completed successfully, its output
+file was independently verified, and replacement reached ready/workspace. Re-enabled
+coding. Then requested a downgrade during a 30-second tool call, observed the
+provisioner draining stage and killed only the provisioner. Explicit restart resumed
+the pending update, the A2A task completed (including result lookup after replacement),
+and ready/workspace was restored. The recovery file independently contained the
+expected marker. Restored ready/coding afterward.
+
+Fault injection at every update crash boundary is not exhaustive. Local tests
+cover failure reporting but not every container replacement race. Coding bash is container-wide,
 not workspace-only; it can access its readable model/listener credentials and state
 and allowed network routes. It has no host-admin capability simply because Ian
 requests one. Tools are not exactly-once external transactions.
@@ -48,5 +56,7 @@ requests one. Tools are not exactly-once external transactions.
 The initial read call in one response returned no content; a repeated absolute-path
 read and independent host read succeeded. No general read-transport fix is claimed.
 
-The illustrated `meet-jupiter.html` describes initial deployment and predates this
-capability change; update it before presenting its read-only claims as current.
+The illustrated `meet-jupiter.html` now describes coding tools, current container
+boundaries and outbound A2A as a future capability. No claim of automatic note
+curation was added. Busy/recovery test marker files intentionally remain in the
+workspace alongside the two earlier harmless capability check files.
