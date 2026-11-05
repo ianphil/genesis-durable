@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>One fleet. A shared companion.</title>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{--paper:#f5f5f5;--ink:#2d3142;--muted:#4f5d75;--accent:#bf4520;--link:#2e5aa8}*{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font-family:Geist,system-ui,sans-serif}.page{max-width:1400px;margin:auto;padding:48px 32px}.eyebrow{font:500 13px 'Geist Mono',monospace;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}h1{font:400 clamp(44px,5vw,76px)/1.05 'Instrument Serif',Georgia,serif;margin:20px 0}.intro{font-size:clamp(22px,2.1vw,30px);line-height:1.5;max-width:1040px;margin-bottom:32px}.diagram-container{width:100%;overflow-x:auto}svg{display:block;width:100%;min-width:1280px}.name{font:600 25px Geist,system-ui,sans-serif;fill:#2d3142}.body{font:400 20px Geist,system-ui,sans-serif;fill:#4f5d75}.small{font:400 17px Geist,system-ui,sans-serif;fill:#4f5d75}.tag{font:500 14px 'Geist Mono',monospace;letter-spacing:.08em;fill:#5a6580}.label{font:500 14px 'Geist Mono',monospace;letter-spacing:.06em;fill:#2e5aa8}.notes{display:grid;grid-template-columns:1.3fr 1fr;gap:40px;border-top:1px solid #bfc0c0;padding-top:28px}.notes h2{font-size:23px;margin:0 0 12px}.notes p{font-size:21px;line-height:1.5;margin:0;color:var(--muted)}footer{font-size:15px;line-height:1.6;color:var(--muted);margin-top:32px}a{color:var(--link)}@media(max-width:700px){.page{padding:28px 20px}.notes{grid-template-columns:1fr;gap:24px}}@media print{.diagram-container{overflow-x:visible}svg{min-width:0}.page{padding:16px}}
+</style></head><body><main class="page"><p class="eyebrow">Genesis Durable · Current prototype · November 2026</p><h1>One fleet. A shared companion.</h1><p class="intro">Assistants across Ian’s computers can talk to the same Jupiter. A shared gateway connects the conversations—and gives the agents access to AI models.</p>
+<div class="diagram-container"><svg viewBox="0 0 1280 720" role="img" aria-labelledby="fleet-illustration-title fleet-illustration-desc">
+<title id="fleet-illustration-title">One fleet. A shared companion.</title><desc id="fleet-illustration-desc">Working assistants across four computers contact Jupiter through LiteLLM, which also connects agents to AI models; Jupiter lives on the Mac mini with persistent files and conversation.</desc>
+<defs><marker id="link-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#2e5aa8"/></marker><marker id="state-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="#4f5d75"/></marker></defs>
+<!-- Host grouping is illustrative, not a network-security boundary. -->
+<rect x="868" y="72" width="384" height="556" rx="8" fill="#ececec" stroke="#bfc0c0"/>
+<text x="892" y="108" class="tag">AT HOME ON THE MAC MINI</text>
+<!-- Connections precede all nodes. Separate paths distinguish model access and agent messaging. -->
+<path d="M 360 328 H 460" fill="none" stroke="#2e5aa8" stroke-width="2" marker-start="url(#link-arrow)" marker-end="url(#link-arrow)"/>
+<rect x="368" y="284" width="84" height="28" fill="#f5f5f5"/><text x="410" y="304" text-anchor="middle" class="label">A2A</text>
+<path d="M 780 328 H 892" fill="none" stroke="#2e5aa8" stroke-width="2" marker-start="url(#link-arrow)" marker-end="url(#link-arrow)"/>
+<rect x="792" y="284" width="88" height="28" fill="#f5f5f5"/><text x="836" y="304" text-anchor="middle" class="label">A2A</text>
+<path d="M 620 248 V 172" fill="none" stroke="#2e5aa8" stroke-width="2" marker-start="url(#link-arrow)" marker-end="url(#link-arrow)"/>
+<rect x="636" y="188" width="168" height="28" fill="#f5f5f5"/><text x="648" y="208" class="label">MODEL ACCESS</text>
+<path d="M 1016 252 V 220 Q 1016 212 1008 212 H 744 Q 736 212 736 220 V 248" fill="none" stroke="#2e5aa8" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#link-arrow)"/>
+<text x="1036" y="224" class="small">Uses models too</text>
+<path d="M 1060 404 V 452" fill="none" stroke="#4f5d75" stroke-width="2" marker-end="url(#state-arrow)"/>
+<!-- Working assistants: grouped rather than four identical nodes. -->
+<rect x="28" y="180" width="332" height="380" rx="8" fill="#ffffff" stroke="#2d3142"/>
+<text x="56" y="224" class="name">Your working assistants</text><text x="56" y="260" class="body">You work with them across</text><text x="56" y="288" class="body">the fleet’s computers.</text>
+<path d="M 56 316 H 332" stroke="#bfc0c0"/>
+<g class="body"><text x="56" y="356">bigbertha</text><text x="56" y="400">lilarchy</text><text x="56" y="444">oma14</text><text x="56" y="488">ais-mac-mini</text></g>
+<!-- Models and gateway live in different places; gateway host named explicitly. -->
+<rect x="460" y="40" width="320" height="132" rx="8" fill="#ffffff" stroke="#2d3142"/>
+<text x="488" y="84" class="name">AI models</text><text x="488" y="120" class="body">Local and hosted services</text><text x="488" y="148" class="small">The engines behind the answers</text>
+<rect x="460" y="248" width="320" height="212" rx="8" fill="#ffffff" stroke="#2d3142" stroke-width="1.5"/>
+<text x="488" y="292" class="tag">SHARED SWITCHBOARD</text><text x="488" y="336" class="name">LiteLLM gateway</text><text x="488" y="376" class="body">Routes agent messages</text><text x="488" y="408" class="body">and model requests</text><text x="488" y="440" class="small">Runs on bigbertha</text>
+<!-- Jupiter is the only accent focal node. -->
+<rect x="892" y="252" width="336" height="152" rx="8" fill="#f1e7e2" stroke="#bf4520" stroke-width="2"/>
+<text x="920" y="292" class="tag">HOSTED AGENT</text><text x="920" y="336" class="name" style="font-size:36px;fill:#bf4520">Jupiter</text><text x="920" y="376" class="body">The same companion each time</text>
+<rect x="892" y="452" width="336" height="148" rx="8" fill="#f5f5f5" stroke="#4f5d75"/>
+<text x="920" y="492" class="name">A home that persists</text><text x="920" y="532" class="body">Identity &amp; working files</text><text x="920" y="564" class="body">Saved conversation</text>
+<!-- Horizontal bottom legend -->
+<path d="M 28 656 H 1252" stroke="#bfc0c0"/>
+<path d="M 40 692 H 80" stroke="#2e5aa8" stroke-width="2" marker-start="url(#link-arrow)" marker-end="url(#link-arrow)"/><text x="100" y="698" class="small">Requests and replies</text>
+<path d="M 392 692 H 432" stroke="#2e5aa8" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#link-arrow)"/><text x="452" y="698" class="small">Jupiter’s model requests</text>
+<path d="M 800 692 H 840" stroke="#4f5d75" stroke-width="2" marker-end="url(#state-arrow)"/><text x="860" y="698" class="small">Files and conversation retained</text>
+</svg></div>
+<div class="notes"><section><h2>A shared contact, not a fresh chat</h2><p>A2A means agent-to-agent communication. A working assistant sends a message through LiteLLM; Jupiter answers through that same route. His identity and conversation survive restarts.</p></section><section><h2>Useful tools, deliberate limits</h2><p>Jupiter can read, write, edit and run commands inside his container. He does not yet have outbound fleet-messaging tools or fleet SSH credentials. Saved conversation does not guarantee perfect recall.</p></section></div>
+<footer>Illustration of the current prototype—not the proposed Kubernetes platform. Connections are logical paths, not physical cables. LAN and Tailscale provide connectivity; deployment, authentication and service plumbing are omitted for clarity. Google Fonts load when online; system fonts are used as fallback.<br><a href="meet-jupiter.html">Read the story behind Jupiter →</a></footer>
+</main></body></html>
